@@ -1,0 +1,95 @@
+{
+  "dashboard": {
+    "title": "System Overview",
+    "uid": "system-overview",
+    "timezone": "browser",
+    "panels": [
+      {
+        "title": "QPS by Endpoint",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[5m])",
+            "legendFormat": "{{method}} {{endpoint}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "title": "Request Latency (p95)",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p95 {{method}} {{endpoint}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "title": "DB Connections",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 8
+        },
+        "targets": [
+          {
+            "expr": "db_connections",
+            "legendFormat": "connections",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "title": "LLM Inference Duration",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 8
+        },
+        "targets": [
+          {
+            "expr": "rate(llm_inference_duration_seconds_sum[5m]) / rate(llm_inference_duration_seconds_count[5m])",
+            "legendFormat": "avg {{model}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "title": "HTTP Status Breakdown",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 8
+        },
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[5m])",
+            "legendFormat": "{{method}} {{endpoint}} {{status}}",
+            "refId": "A"
+          }
+        ]
+      }
+    ]
+  },
+  "overwrite": true
+}
