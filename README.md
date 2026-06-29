@@ -18,83 +18,76 @@ graph TB
 
     subgraph Online["Online Layer (FastAPI + LangGraph)"]
         GW["API Gateway (port 8000)"]
-        subgraph Query["Query Pipeline"]
-            V["Vector Search (Neo4j 1024d)"]
+        A[LangGraph Agent]
+        subgraph Query["3-Path Retrieval"]
+            V["Vector (Neo4j 1024d)"]
             BM25["BM25 Fulltext"]
             G["Graph Expand (Entity 1-2 hops)"]
-            RR["LLM Reranker (Optional)"]
         end
-        subgraph Agent["LangGraph Agent"]
-            A[Agent Router]
-            T["Tools: GraphRAG, DuckDuckGo"]
-        end
-        LC[Langfuse Tracing]
+        RR["LLM Reranker (Optional)"]
     end
 
     subgraph Storage["Storage Layer"]
-        NEO[("Neo4j (Graph DB)")]
+        NEO[("Neo4j")]
         PG[("PostgreSQL")]
-        PROM[("Prometheus (TSDB)")]
+        PROM[("Prometheus")]
     end
 
     subgraph Observability["Observability"]
-        LF[Langfuse Cloud]
-        GRAF[Grafana Dashboards]
-    end
-
-    subgraph Offline["Offline Pipeline (Data Flywheel)"]
-        Eval[RAGBench Evaluation]
-        Judge[LLM-as-Judge 7 metrics]
-        Analysis[Analysis Report 4 sources]
-        Optimizer[LLM-as-Optimizer]
-        Human[Human Review]
-        Deploy[Auto Deploy]
+        LF[Langfuse]
+        GRAF[Grafana]
     end
 
     U -->|"POST /query"| GW
-    GW --> A
-    A --> T
-    T --> Query
-    Query --> NEO
-    GW --> PG
-    GW --> LC --> LF
+    GW --> A --> Query --> NEO
     GW -.->|/metrics| PROM
-
-    NEO --- PG
+    GW --> LF
     PROM --> GRAF
     PG --> GRAF
 
-    Eval --> Judge --> Analysis --> Optimizer --> Human --> Deploy
+    subgraph Offline["Offline Data Flywheel"]
+        Eval --> Judge --> Analysis --> Optimizer --> Human --> Deploy
+    end
+
     Deploy -.->|Parameter update| Query
-    PG -.->|Read metrics| Analysis
-    PROM -.->|Read system metrics| Analysis
-    LF -.->|Read LLM metrics| Analysis
+    PG -.-> Analysis
+    PROM -.-> Analysis
+    LF -.-> Analysis
 ```
 
 ### Online Query Flow
 
 ```mermaid
-sequenceDiagram
-    participant C as Client
-    participant GW as API Gateway
-    participant AG as LangGraph Agent
-    participant RT as 3-Path Retriever
-    participant N as Neo4j
-    participant LF as Langfuse
+flowchart LR
+    C[Client] -->|"POST /query"| GW[API Gateway]
 
-    C->>GW: POST /query {"question":"What is X?"}
-    GW->>AG: Route to agent
-    AG->>RT: Retrieve context
-    RT->>N: Vector search (1024d cosine)
-    RT->>N: BM25 fulltext search
-    RT->>N: Graph entity expand (1-2 hops)
-    N-->>RT: 3 path results
-    RT->>RT: Merge and deduplicate
-    RT-->>AG: Context chunks
-    AG->>AG: Generate answer (qwen3.6-flash)
-    GW->>PG: Log retrieval metrics
-    GW->>LF: Send trace
-    GW-->>C: Response
+    subgraph LangGraph["LangGraph Agent"]
+        AG[Agent Router]
+        T["Tools: GraphRAG, DuckDuckGo"]
+        AG --> T
+    end
+
+    GW --> AG
+
+    subgraph Retrieval["3-Path Retriever"]
+        direction LR
+        V[Vector Search<br/>Neo4j 1024d cosine]
+        BM[BM25 Fulltext<br/>Keyword search]
+        GR[Graph Expand<br/>Entity 1-2 hops]
+    end
+
+    T --> Retrieval
+    Retrieval --> NEO[("Neo4j")]
+    NEO -->|Results| RT[Merge & Deduplicate]
+    RT --> AG
+
+    subgraph Output["Response"]
+        AG -->|Generate answer| LLM[qwen3.6-flash]
+        LLM --> RES[Response]
+    end
+
+    GW --> PG[("PostgreSQL")]
+    GW -->|Trace| LF[Langfuse]
 ```
 
 ### Offline Data Flywheel
@@ -144,60 +137,6 @@ flowchart LR
     CONFIG -.->|Restart| Online[Online Service]
 ```
 
-### Observability Data Flow
-
-```mermaid
-flowchart LR
-    subgraph Prod["Production Data"]
-        PG[("PostgreSQL<br/>Structured Metrics")]
-        PROM[("Prometheus<br/>Time Series")]
-        LF[("Langfuse<br/>LLM Traces")]
-    end
-
-    subgraph AnalysisFlow["Analysis Pipeline"]
-        REP[analysis_report.json]
-        OPT[Optimization Suggestions]
-    end
-
-    PG -->|SQL| REP
-    PROM -->|HTTP API| REP
-    LF -->|HTTP API| REP
-    REP --> OPT
-
-    subgraph Visualization["Visualization"]
-        GRAF[Grafana]
-    end
-
-    PG -->|PostgreSQL Datasource| GRAF
-    PROM -->|Prometheus Datasource| GRAF
-```
-
-### Dual-Agent Architecture
-
-```mermaid
-graph LR
-    subgraph OnlineAgent["Online Agent (FastAPI)"]
-        OA[Real-time Query Serving]
-        OA_F[Feedback Collection]
-        OA_T[Langfuse Tracing]
-    end
-
-    subgraph OfflineAgent["Offline Agent (CLI)"]
-        OA_E[RAGBench Eval]
-        OA_A[Analysis Report]
-        OA_O[Optimization]
-    end
-
-    subgraph Shared["Shared Infrastructure"]
-        NEO[("Neo4j")]
-        PG[("PostgreSQL")]
-    end
-
-    OnlineAgent -->|Read/Write| Shared
-    OfflineAgent -->|Read Only| Shared
-    OfflineAgent -.->|Parameter update| OnlineAgent
-```
-
 ### Online System
 - **FastAPI** server with LangGraph agent
 - **3-path retrieval**: Vector (1024d cosine) + BM25 (fulltext) + Graph (entity expand, 1-2 hops)
@@ -215,18 +154,7 @@ The analysis report aggregates data from:
 | PostgreSQL | Retrieval path contribution, feedback correlation | SQL query |
 | Prometheus | System QPS, request latency, DB connections | HTTP API |
 | Langfuse | LLM latency, token consumption, cost | HTTP API |
-| Local JSON | Eval quality scores (last 5 runs) | File read |
-
-### Offline Agent (Dual-Agent Architecture)
-
-The system uses two specialized agents isolated by profile:
-
-| Agent | Scope | Capabilities |
-|-------|-------|-------------|
-| **Online Agent** (FastAPI + LangGraph) | Real-time query serving | 3-path retrieval, LLM reranker, Langfuse tracing, Feedback collection |
-| **Offline Agent** (CLI) | Background evaluation & optimization | RAGBench eval, analysis report, LLM-as-Optimizer, parameter auto-deploy |
-
-Isolation: Online and Offline agents share the same Neo4j/PostgreSQL infrastructure but have independent runtime profiles. The offline pipeline can run as a cron job without affecting online query latency.
+| Local JSON | Eval quality scores (last 5 runs) | File read
 
 ## Features
 
