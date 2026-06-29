@@ -1,4 +1,4 @@
-﻿"""RAGBench evaluation pipeline for GraphRAG.
+"""RAGBench evaluation pipeline for GraphRAG.
 
 Evaluates GraphRAG performance using RAGBench techqa dataset.
 Metrics: faithfulness, relevance, context_precision.
@@ -17,6 +17,7 @@ from pydantic import SecretStr
 
 from app.core.config import settings
 from app.core.graphrag.retriever import GraphRAGRetriever
+import time
 from app.core.logging import logger
 from app.models.eval_result import EvalResult
 from sqlmodel import Session, create_engine
@@ -87,6 +88,31 @@ Context: {chunk[:500]}"""
             relevant_count += 1
     return relevant_count / min(len(relevant_chunks), 5)
 
+async def evaluate_answer_correctness(question, answer, ground_truth):
+    prompt = "You are an evaluation judge. Rate the correctness."
+    response = await JUDGE_LLM.ainvoke(prompt)
+    try:
+        score = float(response.content.strip())
+        return max(0.0, min(1.0, score))
+    except ValueError:
+        logger.warning("eval_score_parse_error", metric="answer_correctness", raw=response.content)
+        return 0.0
+
+
+async def evaluate_context_recall(retrieved_chunks, ground_truth_docs):
+    if not ground_truth_docs or not retrieved_chunks:
+        return 0.0
+    gt = ''.join([str(d) for d in ground_truth_docs[:3]]).lower()
+    relevant = sum(1 for c in retrieved_chunks if gt[:80].lower() in c.lower())
+    return min(1.0, relevant / max(len(ground_truth_docs), 1))
+
+
+async def evaluate_hit_rate(retrieved_ids, relevant_id):
+    if not relevant_id:
+        return 0.0
+    return 1.0 if relevant_id in retrieved_ids else 0.0
+
+
 
 async def run_evaluation(
     split: str = "test",
@@ -124,9 +150,17 @@ Provide a concise, accurate answer:"""
             answer = answer_response.content.strip()
 
             # Evaluate
+            t0 = time.time()
             faithfulness = await evaluate_faithfulness(question, answer, context_str)
             relevance = await evaluate_relevance(question, answer)
             context_precision = await evaluate_context_precision(context_chunks, question)
+            answer_correctness = await evaluate_answer_correctness(question, answer, ground_truth)
+            context_recall = await evaluate_context_recall(context_chunks, row.get("documents", []))
+            hit_rate = await evaluate_hit_rate(
+                [r.get("chunk_id", "") for r in rag_result.get("vector_context", [])],
+                row.get("documents", [None])[0] if row.get("documents") else None,
+            )
+            elapsed_ms = int((time.time() - t0) * 1000)
 
             results.append({
                 "question": question,
@@ -135,6 +169,10 @@ Provide a concise, accurate answer:"""
                 "faithfulness": faithfulness,
                 "relevance": relevance,
                 "context_precision": context_precision,
+                "answer_correctness": answer_correctness,
+                "context_recall": context_recall,
+                "hit_rate": hit_rate,
+                "response_time_ms": elapsed_ms,
             })
 
             logger.info(
@@ -153,6 +191,10 @@ Provide a concise, accurate answer:"""
         "faithfulness": sum(r["faithfulness"] for r in results) / len(results) if results else 0,
         "relevance": sum(r["relevance"] for r in results) / len(results) if results else 0,
         "context_precision": sum(r["context_precision"] for r in results) / len(results) if results else 0,
+        "answer_correctness": sum(r["answer_correctness"] for r in results) / len(results) if results else 0,
+        "context_recall": sum(r["context_recall"] for r in results) / len(results) if results else 0,
+        "hit_rate": sum(r["hit_rate"] for r in results) / len(results) if results else 0,
+        "avg_response_time_ms": sum(r["response_time_ms"] for r in results) / len(results) if results else 0,
     }
 
     report = {
@@ -199,6 +241,35 @@ Provide a concise, accurate answer:"""
     logger.info("eval_complete", metrics=metrics, output=output_path)
     return report
 
+
+
+import httpx
+
+async def get_token_usage_from_langfuse(trace_name: str = None, since_minutes: int = 60) -> dict:
+    """Get token usage from Langfuse API for recent traces."""
+    from app.core.config import settings
+    pf = settings.LANGFUSE_PUBLIC_KEY or ""
+    sf = settings.LANGFUSE_SECRET_KEY or ""
+    host = settings.LANGFUSE_HOST or "https://cloud.langfuse.com"
+    if not pf or not sf:
+        return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    import base64
+    auth = base64.b64encode(f"{pf}:{sf}".encode()).decode()
+    headers = {"Authorization": f"Basic {auth}"}
+    params = {"limit": 10}
+    if trace_name:
+        params["name"] = trace_name
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(f"{host}/api/public/observations", headers=headers, params=params, timeout=10)
+            if r.status_code == 200:
+                data = r.json()
+                total_in = sum(o.get("usage", {}).get("input", 0) for o in data.get("data", []))
+                total_out = sum(o.get("usage", {}).get("output", 0) for o in data.get("data", []))
+                return {"input_tokens": total_in, "output_tokens": total_out, "total_tokens": total_in + total_out}
+    except Exception as e:
+        logger.warning("langfuse_token_fetch_error", error=str(e))
+    return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
 async def compare_with_baseline() -> dict[str, Any]:
     """Compare GraphRAG results with RAGBench baseline scores."""

@@ -1,4 +1,4 @@
-﻿"""GraphRAG retrieval pipeline.
+"""GraphRAG retrieval pipeline.
 
 3-path retrieval: vector search + BM25 keyword search + graph expansion.
 Each path returns results + metrics for multi-path attribution.
@@ -133,6 +133,13 @@ class GraphRAGRetriever:
         graph_ids = {r["chunk_id"] for r in graph_results if r.get("chunk_id")}
         all_ids = vector_ids | bm25_ids | graph_ids
 
+        all_ids_set = set(all_ids)
+        merged_chunks = list({c.get("chunk_id", ""): c for c in (vector_results + bm25_results + graph_results) if c.get("chunk_id", "") in all_ids_set}.values())
+        if getattr(settings,"GRAPHRAG_ENABLE_RERANKER",False):
+            reranked = await self.rerank_with_llm(query, merged_chunks, top_k or self.top_k)
+        else:
+            reranked = merged_chunks[:top_k]
+
         metrics = {
             "vector_count": len(vector_results),
             "bm25_count": len(bm25_results),
@@ -145,11 +152,32 @@ class GraphRAGRetriever:
         }
 
         return {
-            "vector_context": vector_results,
+            "vector_context": reranked,
             "bm25_context": bm25_results,
             "graph_context": graph_results,
             "metrics": metrics,
         }
+
+
+    async def rerank_with_llm(self, query_text, chunks, top_k=5):
+        if not chunks or len(chunks) <= top_k:
+            return chunks[:top_k]
+        from app.services.llm.registry import LLMRegistry
+        llm = LLMRegistry.get(settings.DEFAULT_LLM_MODEL)
+        scored = []
+        for c in chunks:
+            txt = c.get("text", "")[:300]
+            prompt = "On a scale of 0-10, how relevant is this text to the query?\n"
+            prompt += "Query: " + query_text + "\n"
+            prompt += "Text: " + txt + "\nScore:"
+            resp = await llm.ainvoke(prompt)
+            try:
+                score = float(resp.content.strip())
+            except (ValueError, AttributeError):
+                score = 5.0
+            scored.append((c, score))
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [s[0] for s in scored[:top_k]]
 
     async def close(self) -> None:
         if self.driver:
