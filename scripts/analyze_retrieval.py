@@ -1,4 +1,4 @@
-﻿"""Analyze retrieval metrics from PostgreSQL for data-driven optimization.
+"""Analyze retrieval metrics from PostgreSQL for data-driven optimization.
 
 Reads retrieval_metric, evalresult, and feedback tables to produce:
 1. path_contribution_report - which path contributes independently
@@ -21,7 +21,96 @@ _engine = create_engine(_DB_URL, pool_pre_ping=True)
 REPORT_DIR = "evals/reports"
 
 
-def ensure_report_dir():
+import json
+
+EVAL_RESULTS_DIR = pathlib.Path("evals/results")
+
+
+
+
+def load_langfuse_llm_metrics(minutes: int = 60) -> dict:
+    """Query Langfuse API for LLM latency and token usage from recent traces."""
+    from app.core.config import settings
+    pf = settings.LANGFUSE_PUBLIC_KEY or ""
+    sf = settings.LANGFUSE_SECRET_KEY or ""
+    host = settings.LANGFUSE_HOST or "https://cloud.langfuse.com"
+    if not pf or not sf:
+        return {"error": "Langfuse not configured"}
+    import base64
+    import requests
+    auth = base64.b64encode(f"{pf}:{sf}".encode()).decode()
+    headers = {"Authorization": f"Basic {auth}"}
+    params = {"limit": 20, "type": "span", "name": "Langfuse"}
+    result = {"total_input_tokens": 0, "total_output_tokens": 0, "total_cost": 0, "avg_latency_ms": 0, "span_count": 0}
+    try:
+        r = requests.get(f"{host}/api/public/observations", headers=headers, params=params, timeout=10)
+        if r.status_code == 200:
+            data = r.json().get("data", [])
+            spans = [s for s in data if s.get("type") == "span" and s.get("name") == "Langfuse"]
+            if not spans:
+                return result
+            total_latency = 0
+            for s in spans:
+                usage = s.get("usage", {}) or {}
+                result["total_input_tokens"] += usage.get("input", 0)
+                result["total_output_tokens"] += usage.get("output", 0)
+                result["total_cost"] += usage.get("totalCost", 0)
+                if s.get("endTime") and s.get("startTime"):
+                    lat = (s["endTime"] - s["startTime"]) / 1000000
+                    total_latency += lat
+                    result["span_count"] += 1
+            if result["span_count"] > 0:
+                result["avg_latency_ms"] = round(total_latency / result["span_count"], 1)
+    except Exception as e:
+        result["error"] = str(e)
+    return result
+
+
+
+    files = sorted(EVAL_RESULTS_DIR.glob("graphrag_eval*.json"), key=lambda f: f.stat().st_mtime, reverse=True)
+    history = []
+    for f in files[:n]:
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            metrics = data.get("metrics", {})
+            history.append({
+                "file": f.name,
+                "faithfulness": metrics.get("faithfulness"),
+                "relevance": metrics.get("relevance"),
+                "context_precision": metrics.get("context_precision"),
+                "answer_correctness": metrics.get("answer_correctness"),
+                "context_recall": metrics.get("context_recall"),
+                "hit_rate": metrics.get("hit_rate"),
+                "avg_response_time_ms": metrics.get("avg_response_time_ms"),
+                "total_tokens": metrics.get("total_tokens"),
+                "num_samples": data.get("config", {}).get("num_samples"),
+            })
+        except (json.JSONDecodeError, KeyError):
+            continue
+    return history
+
+
+def load_prometheus_metrics():
+    result = {}
+    try:
+        import requests
+        # System-level metrics from Prometheus (NOT LLM-level)
+        # LLM latency/tokens come from Langfuse via eval report
+        queries = {
+            "avg_request_latency_5m": "rate(http_request_duration_seconds_sum[5m]) / rate(http_request_duration_seconds_count[5m])",
+            "request_rate_5m": "rate(http_requests_total[5m])",
+            "db_connections": "db_connections",
+        }
+        for name, query in queries.items():
+            r = requests.get("http://localhost:9090/api/v1/query", params={"query": query}, timeout=5)
+            if r.status_code == 200:
+                result[name] = r.json().get("data", {}).get("result", [])
+    except Exception as e:
+        result["error"] = str(e)
+    return result
+
+
+
     os.makedirs(REPORT_DIR, exist_ok=True)
 
 
@@ -217,12 +306,19 @@ def generate_all_reports(days: int = 7) -> dict[str, Any]:
         "path_contribution": path_contribution_report(days),
         "feedback_correlation": feedback_correlation_report(days),
         "param_experiment": param_experiment_report(),
+        "eval_history": load_eval_history(5),
+        "prometheus_metrics": load_prometheus_metrics(),
+        "langfuse_llm_metrics": load_langfuse_llm_metrics(),
     }
 
     path = os.path.join(REPORT_DIR, "analysis_report.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2, ensure_ascii=False, default=str)
     print(f"Report saved to {path}")
+    full_path = os.path.join(REPORT_DIR, "analysis_report.json")
+    with open(full_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False, default=str)
+    print(f"Full report (with eval history + Prometheus) saved to {full_path}")
     return result
 
 

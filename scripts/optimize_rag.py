@@ -1,4 +1,4 @@
-﻿"""Data-driven RAG optimization with LLM analysis.
+"""Data-driven RAG optimization with LLM analysis.
 Reads analysis report from analyze_retrieval.py, sends to LLM for
 optimization suggestions, produces human-readable suggestion report.
 Human-in-the-loop: report must be approved before applying changes.
@@ -35,6 +35,23 @@ ANALYSIS_PROMPT = """You are a RAG system optimization analyst. Your job is to a
 ## Input Data
 
 {report_json}
+
+## Data Sources
+The report includes data from three independent sources:
+SYSTEM (Prometheus): request latency, QPS, DB connections - infrastructure health
+RETRIEVAL (PostgreSQL): path contribution, overlap, feedback correlation
+EVAL (Langfuse + RAGBench): faithfulness, correctness, recall, token usage - quality metrics
+1. PATH CONTRIBUTION: How each retrieval path (vector, BM25, graph) performs independently
+2. EVAL HISTORY: Quality metrics (faithfulness, relevance, precision, recall, hit_rate) from last 5 evaluation runs
+3. PROMETHEUS METRICS: System-level performance (request latency, QPS, LLM inference time)
+
+## Attribution Rules
+1. CORRELATE: Look for patterns between Prometheus metrics and eval scores. E.g. high LLM latency may suggest chunk size too large; low hit_rate means retrieval needs adjustment.
+2. TREND ANALYSIS: Compare eval history over 5 runs. Is faithfulness improving? Is response_time increasing?
+3. ROOT CAUSE: Do not suggest parameter changes based on quality scores alone. Use Prometheus metrics to confirm the hypothesis (e.g. high latency confirms chunk_size too large).
+4. TRADEOFF: Every parameter change affects both quality AND performance. Always mention the expected impact on both dimensions.
+
+## Analysis Guidelines
 
 ## Analysis Guidelines
 

@@ -1,12 +1,12 @@
-ï»¿# NexusGraph â€” Agent Development Guide
+# NexusGraph ¡ª Agent Development Guide
 
 ## Project Overview
-Production-grade GraphRAG demo with 3-path retrieval (vector + BM25 + graph expand), RAGBench offline evaluation, and data flywheel. Knowledge base: TechQA (1,192 docs â†’ 63,890 chunks). Graph DB: Neo4j. LLM: DashScope Qwen.
+Production-grade GraphRAG demo with 3-path retrieval (vector + BM25 + graph expand), RAGBench offline evaluation, and data flywheel. Knowledge base: TechQA (1,192 docs ¡ú 63,890 chunks). Graph DB: Neo4j. LLM: DashScope Qwen.
 
 ## Quick Commands
 `ash
 # Server (Windows)
-conda activate newML && python _run_server.py
+conda activate newML && python run_server.py
 
 # Index knowledge base
 conda run -n newML python scripts/ingest_knowledge_base.py
@@ -28,16 +28,16 @@ make stack-offline     # data layer only
 ## Project Structure
 `
 NexusGraph/
-â”œâ”€â”€ app/api/v1/graphrag/     # REST endpoints (query, health, clear, feedback)
-â”œâ”€â”€ app/core/graphrag/       # Indexer, Retriever (3-path), Neo4j models
-â”œâ”€â”€ app/core/langgraph/      # Agent graph + tools (graphrag_search, web_search)
-â”œâ”€â”€ app/models/              # SQLModel: RetrievalMetric, EvalResult, Feedback
-â”œâ”€â”€ app/services/            # LLM registry, embeddings, memory
-â”œâ”€â”€ evals/                   # RAGBench evaluation with LLM-as-Judge
-â”œâ”€â”€ offline_agent/           # CLI: eval â†’ analyze â†’ optimize (human-in-loop)
-â”œâ”€â”€ scripts/                 # ingest, extract_entities, optimize_rag, analyze
-â”œâ”€â”€ tests/                   # 40+ tests: data structures, Neo4j, retriever
-â””â”€â”€ docker-compose.yml       # profiles: online / offline isolation
+©À©¤©¤ app/api/v1/graphrag/     # REST endpoints (query, health, clear, feedback)
+©À©¤©¤ app/core/graphrag/       # Indexer, Retriever (3-path), Neo4j models
+©À©¤©¤ app/core/langgraph/      # Agent graph + tools (graphrag_search, web_search)
+©À©¤©¤ app/models/              # SQLModel: RetrievalMetric, EvalResult, Feedback
+©À©¤©¤ app/services/            # LLM registry, embeddings, memory
+©À©¤©¤ evals/                   # RAGBench evaluation with LLM-as-Judge
+©À©¤©¤ offline_agent/           # CLI: eval ¡ú analyze ¡ú optimize (human-in-loop)
+©À©¤©¤ scripts/                 # ingest, extract_entities, optimize_rag, analyze
+©À©¤©¤ tests/                   # 40+ tests: data structures, Neo4j, retriever
+©¸©¤©¤ docker-compose.yml       # profiles: online / offline isolation
 `
 
 ## Key Technical Details
@@ -47,7 +47,7 @@ NexusGraph/
 |------|--------|-------|
 | Vector | Neo4j vector index (1024d, cosine) | db.index.vector.queryNodes('rag_chunks') |
 | BM25 | Neo4j fulltext index (stop words filtered) | db.index.fulltext.queryNodes('chunk_text_ft') |
-| Graph | Entity expansion (FROM_CHUNK â†’ RELATES_TO) | Cypher traversal, 1-2 hops |
+| Graph | Entity expansion (FROM_CHUNK ¡ú RELATES_TO) | Cypher traversal, 1-2 hops |
 
 ### Entity Extraction (indexer.py / extract_entities.py)
 - Tool: LLMEntityRelationExtractor from neo4j-graphrag
@@ -70,9 +70,9 @@ NexusGraph/
 - Results stored in PostgreSQL + Langfuse
 
 ### Data Flywheel (offline_agent/)
-1. User query â†’ feedback â†’ eval â†’ analyze â†’ LLM optimization suggestions
+1. User query ¡ú feedback ¡ú eval ¡ú analyze ¡ú LLM optimization suggestions
 2. Human approves parameter changes (top_k, chunk_size)
-3. Re-index with optimized params â†’ re-evaluate â†’ monitor trend
+3. Re-index with optimized params ¡ú re-evaluate ¡ú monitor trend
 
 ### Observability
 - Langfuse: full trace per query (vector/Bm25/graph spans + metadata)
@@ -93,15 +93,15 @@ LANGFUSE_HOST=https://jp.cloud.langfuse.com
 - All imports at top of file. No lazy imports.
 - Log with structlog: lowercase_underscore event names, no f-strings in events
 - Async I/O throughout (neo4j async driver, asyncio)
-- No OPENAI_API_KEY references â€” all models use DashScope
+- No OPENAI_API_KEY references ¡ª all models use DashScope
 - Type hints on all function signatures
 
 ## Key Dependencies
-- fastapi, uvicorn â€” web server
-- neo4j, neo4j-graphrag â€” graph DB + entity extraction
-- langchain-text-splitters â€” document chunking
-- sqlmodel, psycopg â€” PostgreSQL ORM
-- langfuse â€” LLM observability
-- datasets (HuggingFace) â€” RAGBench loading
-- prometheus-client, grafana â€” metrics/monitoring
-- pydantic â€” config validation
+- fastapi, uvicorn ¡ª web server
+- neo4j, neo4j-graphrag ¡ª graph DB + entity extraction
+- langchain-text-splitters ¡ª document chunking
+- sqlmodel, psycopg ¡ª PostgreSQL ORM
+- langfuse ¡ª LLM observability
+- datasets (HuggingFace) ¡ª RAGBench loading
+- prometheus-client, grafana ¡ª metrics/monitoring
+- pydantic ¡ª config validation
