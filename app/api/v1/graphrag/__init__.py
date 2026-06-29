@@ -29,6 +29,8 @@ class QueryRequest(BaseModel):
 
 class QueryResponse(BaseModel):
     question: str
+    answer: str = ""
+    source_docs: list[str] = []
     vector_context: list[dict] = []
     bm25_context: list[dict] = []
     graph_context: list[dict] = []
@@ -54,6 +56,41 @@ async def query_graphrag(request: QueryRequest) -> QueryResponse:
     try:
         result = await retriever.local_search(request.question, request.top_k)
         metrics = result.get("metrics", {})
+
+        # Generate answer from retrieved context
+        ctx_parts = []
+        for ctx_key in ["vector_context", "bm25_context", "graph_context"]:
+            for chunk in result.get(ctx_key, [])[:3]:
+                text = chunk.get("text", chunk.get("content", ""))
+                if text:
+                    ctx_parts.append(text)
+        context_text = "\n---\n".join(ctx_parts[:15])
+
+        if context_text:
+            from app.services.llm.registry import LLMRegistry
+            from app.core.config import settings
+            llm = LLMRegistry.get(settings.DEFAULT_LLM_MODEL)
+            # Collect doc titles for display
+            doc_titles = []
+            for ctx_key in ["vector_context", "bm25_context", "graph_context"]:
+                for chunk in result.get(ctx_key, []):
+                    title = chunk.get("document_title", chunk.get("source", ""))
+                    if title and title not in doc_titles:
+                        doc_titles.append(title)
+            result["source_docs"] = doc_titles[:10]
+
+            answer = llm.invoke(
+                f"Context:\n{context_text}\n\n"
+                f"Question: {request.question}\n\n"
+                f"Instructions: Answer based ONLY on the context above. "
+                f"If the context does not contain relevant information to answer the question, "
+                f"say 'The knowledge base does not contain information about this topic.' "
+                f"Do not make up answers. Do not guess.\n\n"
+                f"Answer:"
+            ).content
+            result["answer"] = answer
+        else:
+            result["answer"] = "(no relevant context found)"
         elapsed_ms = int((time.monotonic() - start_time) * 1000)
 
         logger.info(
@@ -102,6 +139,8 @@ async def query_graphrag(request: QueryRequest) -> QueryResponse:
 
         return QueryResponse(
             question=request.question,
+            answer=result.get("answer", ""),
+            source_docs=result.get("source_docs", []),
             vector_context=result.get("vector_context", []),
             bm25_context=result.get("bm25_context", []),
             graph_context=result.get("graph_context", []),
