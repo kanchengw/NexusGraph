@@ -6,23 +6,208 @@ Built on RAGBench (TechQA) knowledge base (1,192 docs, 63,890 chunks). Graph DB:
 
 ---
 
-## Architecture
+﻿## Architecture
+
+### System Overview
+
+```mermaid
+graph TB
+    subgraph User["User Layer"]
+        U[User / Client]
+    end
+
+    subgraph Online["Online Layer (FastAPI + LangGraph)"]
+        GW["API Gateway (port 8000)"]
+        subgraph Query["Query Pipeline"]
+            V["Vector Search (Neo4j 1024d)"]
+            BM25["BM25 Fulltext"]
+            G["Graph Expand (Entity 1-2 hops)"]
+            RR["LLM Reranker (Optional)"]
+        end
+        subgraph Agent["LangGraph Agent"]
+            A[Agent Router]
+            T["Tools: GraphRAG, DuckDuckGo"]
+        end
+        LC[Langfuse Tracing]
+    end
+
+    subgraph Storage["Storage Layer"]
+        NEO[("Neo4j (Graph DB)")]
+        PG[("PostgreSQL")]
+        PROM[("Prometheus (TSDB)")]
+    end
+
+    subgraph Observability["Observability"]
+        LF[Langfuse Cloud]
+        GRAF[Grafana Dashboards]
+    end
+
+    subgraph Offline["Offline Pipeline (Data Flywheel)"]
+        Eval[RAGBench Evaluation]
+        Judge[LLM-as-Judge 7 metrics]
+        Analysis[Analysis Report 4 sources]
+        Optimizer[LLM-as-Optimizer]
+        Human[Human Review]
+        Deploy[Auto Deploy]
+    end
+
+    U -->|"POST /query"| GW
+    GW --> A
+    A --> T
+    T --> Query
+    Query --> NEO
+    GW --> PG
+    GW --> LC --> LF
+    GW -.->|/metrics| PROM
+
+    NEO --- PG
+    PROM --> GRAF
+    PG --> GRAF
+
+    Eval --> Judge --> Analysis --> Optimizer --> Human --> Deploy
+    Deploy -.->|Parameter update| Query
+    PG -.->|Read metrics| Analysis
+    PROM -.->|Read system metrics| Analysis
+    LF -.->|Read LLM metrics| Analysis
+```
+
+### Online Query Flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant GW as API Gateway
+    participant AG as LangGraph Agent
+    participant RT as 3-Path Retriever
+    participant N as Neo4j
+    participant LF as Langfuse
+
+    C->>GW: POST /query {"question":"What is X?"}
+    GW->>AG: Route to agent
+    AG->>RT: Retrieve context
+    RT->>N: Vector search (1024d cosine)
+    RT->>N: BM25 fulltext search
+    RT->>N: Graph entity expand (1-2 hops)
+    N-->>RT: 3 path results
+    RT->>RT: Merge and deduplicate
+    RT-->>AG: Context chunks
+    AG->>AG: Generate answer (qwen3.6-flash)
+    GW->>PG: Log retrieval metrics
+    GW->>LF: Send trace
+    GW-->>C: Response
+```
+
+### Offline Data Flywheel
+
+```mermaid
+flowchart LR
+    subgraph Sources["Data Sources"]
+        PG[("PostgreSQL<br/>Retrieval Metrics<br/>Feedback")]
+        PROM[("Prometheus<br/>System Metrics")]
+        LF[("Langfuse<br/>LLM Metrics")]
+        JSON[JSON<br/>Eval History]
+    end
+
+    subgraph Analysis["Analysis Engine"]
+        AR[analyze_retrieval.py]
+        REPORT[analysis_report.json<br/>4-source fusion]
+    end
+
+    subgraph Optimization["LLM-as-Optimizer"]
+        LLM[qwen3.6-flash]
+        SUGG[optimization_suggestion.json]
+    end
+
+    subgraph HumanLoop["Human-in-the-Loop"]
+        REVIEW[Review Report]
+        APPROVE[Approve Changes]
+        REJECT[Reject / Modify]
+    end
+
+    subgraph Deploy["Auto Deploy"]
+        APPLY[optimize_rag.py --apply]
+        CONFIG[Update .env config]
+    end
+
+    PG --> AR
+    PROM --> AR
+    LF --> AR
+    JSON --> AR
+    AR --> REPORT
+    REPORT --> LLM
+    LLM --> SUGG
+    SUGG --> REVIEW
+    REVIEW -->|Approve| APPROVE
+    REVIEW -->|Reject| REJECT
+    APPROVE --> APPLY
+    APPLY --> CONFIG
+    CONFIG -.->|Restart| Online[Online Service]
+```
+
+### Observability Data Flow
+
+```mermaid
+flowchart LR
+    subgraph Prod["Production Data"]
+        PG[("PostgreSQL<br/>Structured Metrics")]
+        PROM[("Prometheus<br/>Time Series")]
+        LF[("Langfuse<br/>LLM Traces")]
+    end
+
+    subgraph AnalysisFlow["Analysis Pipeline"]
+        REP[analysis_report.json]
+        OPT[Optimization Suggestions]
+    end
+
+    PG -->|SQL| REP
+    PROM -->|HTTP API| REP
+    LF -->|HTTP API| REP
+    REP --> OPT
+
+    subgraph Visualization["Visualization"]
+        GRAF[Grafana]
+    end
+
+    PG -->|PostgreSQL Datasource| GRAF
+    PROM -->|Prometheus Datasource| GRAF
+```
+
+### Dual-Agent Architecture
+
+```mermaid
+graph LR
+    subgraph OnlineAgent["Online Agent (FastAPI)"]
+        OA[Real-time Query Serving]
+        OA_F[Feedback Collection]
+        OA_T[Langfuse Tracing]
+    end
+
+    subgraph OfflineAgent["Offline Agent (CLI)"]
+        OA_E[RAGBench Eval]
+        OA_A[Analysis Report]
+        OA_O[Optimization]
+    end
+
+    subgraph Shared["Shared Infrastructure"]
+        NEO[("Neo4j")]
+        PG[("PostgreSQL")]
+    end
+
+    OnlineAgent -->|Read/Write| Shared
+    OfflineAgent -->|Read Only| Shared
+    OfflineAgent -.->|Parameter update| OnlineAgent
+```
 
 ### Online System
 - **FastAPI** server with LangGraph agent
 - **3-path retrieval**: Vector (1024d cosine) + BM25 (fulltext) + Graph (entity expand, 1-2 hops)
-- **Optional LLM reranker** (disabled by default, set `GRAPHRAG_ENABLE_RERANKER=true` to enable)
+- **Optional LLM reranker** (disabled by default, set GRAPHRAG_ENABLE_RERANKER=true to enable)
 - **Langfuse**: Full trace per query, LLM latency + token tracking
 - **Prometheus**: System QPS, request latency, DB connections
 - **PostgreSQL**: RetrievalMetric + Feedback + EvalResult persistence
 - **Grafana**: 2 provisioned dashboards (System Overview + Retrieval Insights with feedback panels)
 
 ### Offline Pipeline (Data Flywheel)
-
-```
-RAGBench Eval --> LLM-as-Judge --> Analysis Report --> LLM-as-Optimizer --> Human Review --> Parameter Update
-                     (7 metrics)     (4 data sources)   (with attribution)     (approval)       (auto deploy)
-```
 
 The analysis report aggregates data from:
 | Source | Data | Method |
