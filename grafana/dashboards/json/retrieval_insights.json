@@ -197,6 +197,132 @@
           "type": "postgres",
           "uid": "PostgreSQL"
         }
+      },
+      {
+        "title": "Avg Rating (Last 7d)",
+        "type": "stat",
+        "gridPos": {
+          "h": 6,
+          "w": 4,
+          "x": 0,
+          "y": 22
+        },
+        "targets": [
+          {
+            "rawSql": "SELECT COALESCE(AVG(rating)::numeric(3,2), 0) AS value FROM feedback WHERE created_at > now() - interval ${__range}",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "datasource": {
+          "type": "postgres",
+          "uid": "PostgreSQL"
+        }
+      },
+      {
+        "title": "Total Feedback Count (Last 7d)",
+        "type": "stat",
+        "gridPos": {
+          "h": 6,
+          "w": 4,
+          "x": 4,
+          "y": 22
+        },
+        "targets": [
+          {
+            "rawSql": "SELECT COUNT(*)::int AS value FROM feedback WHERE created_at > now() - interval ${__range}",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "datasource": {
+          "type": "postgres",
+          "uid": "PostgreSQL"
+        }
+      },
+      {
+        "title": "Low Rating % (<3)",
+        "type": "stat",
+        "gridPos": {
+          "h": 6,
+          "w": 4,
+          "x": 8,
+          "y": 22
+        },
+        "targets": [
+          {
+            "rawSql": "SELECT COALESCE((SUM(CASE WHEN rating < 3 THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) * 100)::numeric(4,1), 0) AS value FROM feedback WHERE created_at > now() - interval ${__range}",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "datasource": {
+          "type": "postgres",
+          "uid": "PostgreSQL"
+        }
+      },
+      {
+        "title": "Rating Distribution",
+        "type": "bargauge",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 28
+        },
+        "targets": [
+          {
+            "rawSql": "SELECT rating::text AS metric, COUNT(*)::int AS value FROM feedback WHERE created_at > now() - interval ${__range} GROUP BY rating ORDER BY rating",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "datasource": {
+          "type": "postgres",
+          "uid": "PostgreSQL"
+        }
+      },
+      {
+        "title": "Rating Trend (Daily Avg, Last 7d)",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 28
+        },
+        "targets": [
+          {
+            "rawSql": "SELECT DATE(created_at) AS time, AVG(rating)::numeric(3,2) AS value FROM feedback WHERE created_at > now() - interval ${__range} GROUP BY DATE(created_at) ORDER BY time",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "datasource": {
+          "type": "postgres",
+          "uid": "PostgreSQL"
+        }
+      },
+      {
+        "title": "Recent Low-Rated Queries (<3)",
+        "type": "table",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 28
+        },
+        "targets": [
+          {
+            "rawSql": "SELECT id, rating, LEFT(query, 80) AS query, created_at FROM feedback WHERE rating < 3 AND created_at > now() - interval ${__range} ORDER BY created_at DESC LIMIT 20",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "datasource": {
+          "type": "postgres",
+          "uid": "PostgreSQL"
+        }
       }
     ]
   },

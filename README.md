@@ -1,4 +1,4 @@
-﻿# NexusGraph
+# NexusGraph
 
 > Production-grade GraphRAG Demo with 3-path retrieval, offline evaluation, LLM-as-Judge, and automated optimization pipeline.
 
@@ -15,12 +15,13 @@ Built on RAGBench (TechQA) knowledge base (1,192 docs, 63,890 chunks). Graph DB:
 - **Langfuse**: Full trace per query, LLM latency + token tracking
 - **Prometheus**: System QPS, request latency, DB connections
 - **PostgreSQL**: RetrievalMetric + Feedback + EvalResult persistence
+- **Grafana**: 2 provisioned dashboards (System Overview + Retrieval Insights with feedback panels)
 
 ### Offline Pipeline (Data Flywheel)
 
 ```
-RAGBench Eval ──> LLM-as-Judge ──> Analysis Report ──> LLM-as-Optimizer ──> Human Review ──> Parameter Update
-                     (7 metrics)      (3 data sources)    (with attribution)    (approval)        (auto deploy)
+RAGBench Eval --> LLM-as-Judge --> Analysis Report --> LLM-as-Optimizer --> Human Review --> Parameter Update
+                     (7 metrics)     (4 data sources)   (with attribution)     (approval)       (auto deploy)
 ```
 
 The analysis report aggregates data from:
@@ -30,6 +31,17 @@ The analysis report aggregates data from:
 | Prometheus | System QPS, request latency, DB connections | HTTP API |
 | Langfuse | LLM latency, token consumption, cost | HTTP API |
 | Local JSON | Eval quality scores (last 5 runs) | File read |
+
+### Offline Agent (Dual-Agent Architecture)
+
+The system uses two specialized agents isolated by profile:
+
+| Agent | Scope | Capabilities |
+|-------|-------|-------------|
+| **Online Agent** (FastAPI + LangGraph) | Real-time query serving | 3-path retrieval, LLM reranker, Langfuse tracing, Feedback collection |
+| **Offline Agent** (CLI) | Background evaluation & optimization | RAGBench eval, analysis report, LLM-as-Optimizer, parameter auto-deploy |
+
+Isolation: Online and Offline agents share the same Neo4j/PostgreSQL infrastructure but have independent runtime profiles. The offline pipeline can run as a cron job without affecting online query latency.
 
 ## Features
 
@@ -54,7 +66,16 @@ The analysis report aggregates data from:
 ### Knowledge Graph
 - Entity extraction via neo4j-graphrag (qwen3.6-flash)
 - Schema: Document -[:PART_OF]-> Chunk <-[:FROM_CHUNK]- Entity -[:RELATES_TO]-> Entity
-- ~11,700 entities, ~9,800 typed relations across 34 documents
+- ~11,700 entities, ~9,800 typed relations across 50+ documents
+
+### Data Flywheel
+**Feedback loop**: User ratings (POST /feedback) are correlated with retrieval metrics in PostgreSQL. The analysis pipeline identifies patterns: which retrieval paths lead to low ratings, which parameter choices reduce faithfulness.
+
+**Optimization rules**:
+- faithfulness < 0.8 -> reduce top_k from 5 to 3
+- context_precision < 0.7 -> reduce chunk_size to 256
+- High latency -> reduce top_k or enable streaming
+- BM25-only answers -> reduce vector weight threshold
 
 ### LLM-as-Optimizer
 Reads the full analysis report and generates parameter change suggestions with:
@@ -64,12 +85,16 @@ Reads the full analysis report and generates parameter change suggestions with:
 - **Human-in-the-loop**: Report must be approved before auto-deployment
 
 ### Observability
-| Tool | Purpose | Data Retained |
-|------|---------|---------------|
-| Langfuse | LLM trace, latency, token cost | Cloud (persistent) |
-| PostgreSQL | Retrieval metrics, eval results, feedback | Local (persistent) |
-| Prometheus | QPS, request latency, DB connections | TSDB (configurable retention) |
-| Grafana | Visual dashboard from Prometheus | - |
+| Tool | Purpose | Data Retained | Access |
+|------|---------|---------------|--------|
+| Langfuse | LLM trace, latency, token cost | Cloud (persistent) | https://jp.cloud.langfuse.com |
+| PostgreSQL | Retrieval metrics, eval results, feedback | Local (persistent volume) | port 5432 (127.0.0.1 only) |
+| Prometheus | QPS, request latency, DB connections | TSDB (30-day retention) | port 9090 (127.0.0.1 only) |
+| Grafana | Visual dashboard from Prometheus + PostgreSQL | - | port 3000 (admin/admin) |
+
+**Grafana Dashboards**:
+- **System Overview** (Prometheus): QPS by endpoint, request latency p95, DB connections, LLM inference duration, memory usage
+- **Retrieval Insights** (PostgreSQL): Unique chunks/query, response time, eval score history, path contribution, overlap analysis, rating distribution, feedback correlation
 
 ## Quick Start
 
@@ -91,7 +116,7 @@ cp .env.example .env.development
 # Data layer only (Neo4j + PostgreSQL)
 docker compose --profile offline up -d
 
-# Or full stack (+ app + Prometheus + Grafana)
+# Or full stack (+ app + Prometheus + Grafana + cAdvisor)
 docker compose --profile online up -d
 ```
 
@@ -132,6 +157,50 @@ conda run -n newML python scripts/optimize_rag.py         # LLM generates sugges
 python scripts/optimize_rag.py --apply
 ```
 
+## Production Deployment
+
+### Docker Compose (Production)
+
+```bash
+# 1. Configure production environment
+cp .env.production .env.production
+# Edit .env.production with your credentials
+
+# 2. Start with production profile
+docker compose --profile online --env-file .env.production up -d
+```
+
+Production docker-compose features:
+| Feature | Implementation |
+|---------|---------------|
+| Data persistence | Named volumes (neo4j_data, postgres_data, prometheus_data) |
+| Resource limits | Memory caps: app 4G, neo4j 2G, pg 1G, prometheus 1G, grafana 512M |
+| Self-healing | restart: unless-stopped on all 6 services |
+| Health checks | App: curl /health (30s interval, 60s startup grace) |
+| Security | Internal ports bound to 127.0.0.1 (5432, 7687, 9090, 8080) |
+| Metrics | cAdvisor for container-level resource monitoring |
+| Password management | All passwords via env vars with defaults in .env.production |
+
+### Data Backup & Restore
+
+```bash
+# Backup Neo4j + PostgreSQL + configs
+bash scripts/backup-data.sh
+
+# Restore from a backup archive
+bash scripts/restore-data.sh backups/nexusgraph-backup-20260629_120000.tar.gz
+```
+
+### Port Map
+| Port | Service | Public | Purpose |
+|------|---------|--------|---------|
+| 8000 | FastAPI app | Yes | API endpoint |
+| 3000 | Grafana | Yes | Dashboard UI |
+| 5432 | PostgreSQL | No (127.0.0.1) | Internal DB |
+| 7687 | Neo4j Bolt | No (127.0.0.1) | Graph DB |
+| 9090 | Prometheus | No (127.0.0.1) | Metrics TSDB |
+| 8080 | cAdvisor | No (127.0.0.1) | Container metrics |
+
 ## API Endpoints
 
 | Method | Path | Description |
@@ -171,11 +240,11 @@ NexusGraph/
 |-- app/services/            # LLM registry, embeddings, database
 |-- evals/                   # RAGBench evaluation pipeline (7 metrics)
 |-- offline_agent/           # CLI: eval / analyze / optimize pipeline
-|-- scripts/                 # ingest, extract, analyze, optimize
+|-- scripts/                 # ingest, extract, analyze, optimize, backup, restore
 |-- tests/                   # 47 tests
-|-- docker-compose.yml       # Online / Offline profile isolation
+|-- grafana/                 # Grafana dashboard provisioning (2 dashboards)
 |-- prometheus/              # Prometheus config + scrape targets
-|-- grafana/                 # Grafana dashboard provisioning
+|-- docker-compose.yml       # Production-ready (volumes, limits, healthchecks)
 ```
 
 ## Test Status
