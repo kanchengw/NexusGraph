@@ -1,0 +1,42 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+*.jsonl
+
+# Virtual environments
+.venv
+
+# Environment variables
+.env
+.env.development
+.env.staging
+.env.production
+
+# IDE / Editor
+.cursor/
+.vscode/
+
+# Logs
+logs/
+
+# Misc
+*.ipynb
+
+# Reports
+evals/reports/
+
+# Temp / generated files
+fix_indent.py
+server_test.*
+
+plan.md
+
+.pytest_cache
+
+evals/results/
+
+backups/

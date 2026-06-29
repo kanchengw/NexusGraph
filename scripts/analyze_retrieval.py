@@ -1,0 +1,278 @@
+﻿"""Analyze retrieval metrics from PostgreSQL for data-driven optimization.
+
+Reads retrieval_metric, evalresult, and feedback tables to produce:
+1. path_contribution_report - which path contributes independently
+2. feedback_correlation_report - what retrieval patterns lead to bad ratings
+3. param_experiment_report - how different params affect metrics
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from datetime import datetime, timedelta
+from typing import Any
+
+from sqlmodel import Session, create_engine, text
+
+_DB_URL = "postgresql://myuser:mypassword@localhost:5432/mydb"
+_engine = create_engine(_DB_URL, pool_pre_ping=True)
+
+REPORT_DIR = "evals/reports"
+
+
+def ensure_report_dir():
+    os.makedirs(REPORT_DIR, exist_ok=True)
+
+
+def run_sql(sql: str) -> list[dict[str, Any]]:
+    with Session(_engine) as session:
+        result = session.execute(text(sql))
+        cols = result.keys()
+        return [dict(zip(cols, row)) for row in result.fetchall()]
+
+
+# ─── Report 1: Path Contribution ─────────────────────────────
+
+
+def path_contribution_report(days: int = 7) -> dict[str, Any]:
+    """Analyze how much each retrieval path contributes independently."""
+    since = (datetime.utcnow() - timedelta(days=days)).isoformat()
+
+    rows = run_sql(f"""
+        SELECT
+            COUNT(*) AS total_queries,
+            AVG(vector_count)::numeric(10,2) AS avg_vector,
+            AVG(bm25_count)::numeric(10,2) AS avg_bm25,
+            AVG(graph_count)::numeric(10,2) AS avg_graph,
+            AVG(unique_chunks)::numeric(10,2) AS avg_unique,
+            AVG(vector_only)::numeric(10,2) AS avg_vector_only,
+            AVG(bm25_only)::numeric(10,2) AS avg_bm25_only,
+            AVG(graph_only)::numeric(10,2) AS avg_graph_only,
+            AVG(overlap_vector_bm25)::numeric(10,2) AS avg_overlap,
+            AVG(response_time_ms)::numeric(10,0) AS avg_response_ms
+        FROM retrievalmetric
+        WHERE timestamp >= '{since}'
+    """)
+
+    report = {
+        "period_days": days,
+        "sample_size": rows[0]["total_queries"] if rows else 0,
+        "averages": rows[0] if rows else {},
+    }
+
+    if rows and rows[0]["total_queries"] > 0:
+        r = rows[0]
+        total = r["avg_unique"] or 1
+        report["contribution_rates"] = {
+            "vector_independent_pct": round(r["avg_vector_only"] / total * 100, 1),
+            "bm25_independent_pct": round(r["avg_bm25_only"] / total * 100, 1),
+            "graph_independent_pct": round(r["avg_graph_only"] / total * 100, 1),
+            "vector_bm25_overlap_pct": round(r["avg_overlap"] / total * 100, 1),
+        }
+        report["diagnosis"] = _diagnose_paths(report["contribution_rates"])
+
+    return report
+
+
+def _diagnose_paths(rates: dict[str, float]) -> list[str]:
+    diag = []
+    if rates.get("bm25_independent_pct", 100) < 5:
+        diag.append("BM25 independent rate < 5%: BM25 path needs improvement")
+    if rates.get("graph_independent_pct", 100) < 3:
+        diag.append("Graph expand independent rate < 3%: graph quality may be low")
+    if rates.get("vector_independent_pct", 0) > 80:
+        diag.append("Vector dominates (>80%): other paths not contributing independently")
+    if rates.get("vector_bm25_overlap_pct", 0) > 80:
+        diag.append("Vector-BM25 overlap > 80%: two paths are redundant")
+    if not diag:
+        diag.append("All paths contributing: no critical issues detected")
+    return diag
+
+
+# ─── Report 2: Feedback Correlation ─────────────────────────
+
+
+def feedback_correlation_report(days: int = 30) -> dict[str, Any]:
+    """Correlate retrieval metrics with user feedback ratings."""
+    since = (datetime.utcnow() - timedelta(days=days)).isoformat()
+
+    # Queries with low ratings (rating <= 2) vs high ratings (rating >= 4)
+    low = run_sql(f"""
+        SELECT
+            AVG(r.vector_count)::numeric(10,2) AS avg_vector,
+            AVG(r.bm25_count)::numeric(10,2) AS avg_bm25,
+            AVG(r.graph_count)::numeric(10,2) AS avg_graph,
+            AVG(r.unique_chunks)::numeric(10,2) AS avg_unique,
+            AVG(r.vector_only)::numeric(10,2) AS avg_vector_only,
+            AVG(r.response_time_ms)::numeric(10,0) AS avg_ms,
+            COUNT(*) AS cnt
+        FROM retrievalmetric r
+        JOIN feedback f ON r.query = f.query
+        WHERE f.rating <= 2 AND f.created_at >= '{since}'
+    """)
+
+    high = run_sql(f"""
+        SELECT
+            AVG(r.vector_count)::numeric(10,2) AS avg_vector,
+            AVG(r.bm25_count)::numeric(10,2) AS avg_bm25,
+            AVG(r.graph_count)::numeric(10,2) AS avg_graph,
+            AVG(r.unique_chunks)::numeric(10,2) AS avg_unique,
+            AVG(r.vector_only)::numeric(10,2) AS avg_vector_only,
+            AVG(r.response_time_ms)::numeric(10,0) AS avg_ms,
+            COUNT(*) AS cnt
+        FROM retrievalmetric r
+        JOIN feedback f ON r.query = f.query
+        WHERE f.rating >= 4 AND f.created_at >= '{since}'
+    """)
+
+    return {
+        "period_days": days,
+        "low_rated_queries": low[0] if low else {"cnt": 0},
+        "high_rated_queries": high[0] if high else {"cnt": 0},
+        "diagnosis": _diagnose_feedback(low[0] if low else None, high[0] if high else None),
+    }
+
+
+def _diagnose_feedback(low: dict | None, high: dict | None) -> list[str]:
+    diag = []
+    if not low or low["cnt"] == 0:
+        diag.append("No low-rated queries with matching metrics yet")
+        return diag
+    if not high or high["cnt"] == 0:
+        diag.append("No high-rated queries with matching metrics yet")
+        return diag
+
+    if (low.get("avg_vector_only", 5) or 5) > (high.get("avg_vector_only", 3) or 3) + 2:
+        diag.append("Low-rated queries retrieve MORE unique chunks than high-rated: possible noise")
+    if (low.get("avg_ms", 1000) or 1000) > (high.get("avg_ms", 500) or 500) * 1.5:
+        diag.append("Low-rated queries have significantly higher latency")
+    if (low.get("avg_bm25", 0) or 0) < (high.get("avg_bm25", 1) or 1):
+        diag.append("BM25 contributes less to low-rated queries: check keyword quality")
+    if not diag:
+        diag.append("No clear pattern detected between ratings and retrieval metrics")
+    return diag
+
+
+# ─── Report 3: Parameter Experiment ─────────────────────────
+
+
+def param_experiment_report() -> dict[str, Any]:
+    """Compare eval results across different parameter combinations."""
+    rows = run_sql("""
+        SELECT
+            top_k,
+            chunk_size,
+            chunk_overlap,
+            AVG(faithfulness)::numeric(10,3) AS avg_faithfulness,
+            AVG(relevance)::numeric(10,3) AS avg_relevance,
+            AVG(context_precision)::numeric(10,3) AS avg_precision,
+            COUNT(*) AS num_runs
+        FROM evalresult
+        GROUP BY top_k, chunk_size, chunk_overlap
+        ORDER BY avg_faithfulness DESC
+    """)
+
+    if not rows:
+        return {"message": "No eval results yet. Run 'make eval-rag' first."}
+
+    best = rows[0]
+    return {
+        "param_combinations": rows,
+        "best_params": {
+            "top_k": best["top_k"],
+            "chunk_size": best["chunk_size"],
+            "chunk_overlap": best["chunk_overlap"],
+        },
+        "diagnosis": _diagnose_params(rows),
+    }
+
+
+def _diagnose_params(rows: list[dict]) -> list[str]:
+    diag = []
+    if len(rows) < 2:
+        diag.append("Only one parameter combination tested. Run 'optimize_rag.py' for comparison.")
+        return diag
+    best = rows[0]
+    for r in rows[1:]:
+        diff = best["avg_faithfulness"] - r["avg_faithfulness"]
+        if abs(diff) < 0.02:
+            diag.append(
+                f"top_k={r['top_k']}/chunk={r['chunk_size']} vs "
+                f"top_k={best['top_k']}/chunk={best['chunk_size']}: "
+                f"faithfulness diff < 2% (not significant)"
+            )
+    if not diag:
+        diag.append("Parameter differences are significant: keep tracking")
+    return diag
+
+
+# ─── Main ──────────────────────────────────────────────────
+
+
+def generate_all_reports(days: int = 7) -> dict[str, Any]:
+    ensure_report_dir()
+    result = {
+        "generated_at": datetime.utcnow().isoformat(),
+        "path_contribution": path_contribution_report(days),
+        "feedback_correlation": feedback_correlation_report(days),
+        "param_experiment": param_experiment_report(),
+    }
+
+    path = os.path.join(REPORT_DIR, "analysis_report.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False, default=str)
+    print(f"Report saved to {path}")
+    return result
+
+
+def print_report_summary(report: dict[str, Any]) -> None:
+    print("=" * 60)
+    print("RETRIEVAL ANALYSIS REPORT")
+    print("=" * 60)
+
+    pc = report.get("path_contribution", {})
+    print(f"\n[1] Path Contribution (last {pc.get('period_days', '?')}d)")
+    print(f"    Queries analyzed: {pc.get('sample_size', 0)}")
+    rates = pc.get("contribution_rates", {})
+    if rates:
+        for k, v in rates.items():
+            print(f"    {k}: {v}%")
+    for d in pc.get("diagnosis", []):
+        print(f"    >> {d}")
+
+    fc = report.get("feedback_correlation", {})
+    print(f"\n[2] Feedback Correlation (last {fc.get('period_days', '?')}d)")
+    lo = fc.get("low_rated_queries", {})
+    hi = fc.get("high_rated_queries", {})
+    print(f"    Low-rated queries: {lo.get('cnt', 0)}")
+    print(f"    High-rated queries: {hi.get('cnt', 0)}")
+    for d in fc.get("diagnosis", []):
+        print(f"    >> {d}")
+
+    pe = report.get("param_experiment", {})
+    print(f"\n[3] Parameter Experiments")
+    combos = pe.get("param_combinations", [])
+    if combos:
+        print(f"    Combinations tested: {len(combos)}")
+        bp = pe.get("best_params", {})
+        if bp:
+            print(f"    Best: top_k={bp.get('top_k')}, chunk={bp.get('chunk_size')}")
+    else:
+        print(f"    {pe.get('message', 'No data')}")
+    for d in pe.get("diagnosis", []):
+        print(f"    >> {d}")
+
+    print("\n" + "=" * 60)
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Analyze retrieval metrics")
+    parser.add_argument("--days", type=int, default=7, help="Lookback period in days")
+    parser.add_argument("--summary", action="store_true", help="Print summary to console")
+    args = parser.parse_args()
+
+    report = generate_all_reports(days=args.days)
+    if args.summary:
+        print_report_summary(report)
