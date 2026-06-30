@@ -164,7 +164,7 @@ ENABLE_LOCAL=true replaces cloud API calls **only for the Index Agent** (knowled
 ENABLE_LOCAL=true
 LOCAL_OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
 LOCAL_LLM_MODEL=deepseek-r1:8b
-``
+```
 
 ## Quick Start
 
