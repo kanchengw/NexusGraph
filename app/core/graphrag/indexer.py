@@ -70,16 +70,27 @@ class KnowledgeBaseIndexer:
             chunk_overlap=settings.GRAPHRAG_CHUNK_OVERLAP,
         )
         self.driver = None
-        # Use neo4j-graphrag's OpenAILLM wrapper (works with DashScope via base_url)
-        self._entity_llm = OpenAILLM(
-            model_name="qwen3.6-flash",
-            base_url=settings.LLM_BASE_URL,
-            api_key=settings.LLM_API_KEY,
-            model_params={
-                "temperature": 0.1,
-                "max_tokens": 2048,
-            },
-        )
+        # Entity extraction LLM: local mode uses deepseek via Ollama, cloud uses DashScope
+        if settings.ENABLE_LOCAL:
+            self._entity_llm = OpenAILLM(
+                model_name=settings.LOCAL_LLM_MODEL,
+                base_url=settings.LOCAL_OLLAMA_BASE_URL,
+                api_key="ollama",
+                model_params={
+                    "temperature": 0.1,
+                    "max_tokens": 2048,
+                },
+            )
+        else:
+            self._entity_llm = OpenAILLM(
+                model_name="qwen3.6-flash",
+                base_url=settings.LLM_BASE_URL,
+                api_key=settings.LLM_API_KEY,
+                model_params={
+                    "temperature": 0.1,
+                    "max_tokens": 2048,
+                },
+            )
         self._entity_extractor = LLMEntityRelationExtractor(
             llm=self._entity_llm,
             use_structured_output=True,
@@ -234,10 +245,17 @@ class KnowledgeBaseIndexer:
                 return
 
             # Batch embedding
+            if settings.ENABLE_LOCAL:
+                from app.services.embeddings import LocalSentenceEmbedding
+                _local_embedder = LocalSentenceEmbedding()
+                _embed = _local_embedder.embed_documents
+            else:
+                _embed = embedding_service.embed_documents
+
             all_embeddings = []
             for batch_start in range(0, len(raw_chunks), 10):
                 batch = raw_chunks[batch_start:batch_start + 10]
-                batch_embeddings = await embedding_service.embed_documents(batch)
+                batch_embeddings = await _embed(batch)
                 all_embeddings.extend(batch_embeddings)
             embeddings = all_embeddings
 

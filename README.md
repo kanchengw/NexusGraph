@@ -143,26 +143,28 @@ NexusGraph/
 
 Data flywheel: Judge (triggered by conversation count) -> Optimizer (HIL) -> Index, automated via workflow.
 
-### Local Mode (Ollama + sentence-transformers)
+### Local Mode (Index Agent Only)
 
-Replace cloud LLM/embedding APIs with local models for offline development & demos.
+ENABLE_LOCAL=true replaces cloud API calls **only for the Index Agent** (knowledge base construction). Online Agent always uses cloud DashScope.
 
 | Component | Cloud (default) | Local (ENABLE_LOCAL=true) |
-|---|---|---|
-| **Embedding** | DashScope text-embedding-v3 (1024d) | mxbai-embed-large-v1 via sentence-transformers (1024d) |
-| **Online LLM** | DashScope Qwen3.6-flash | deepseek-r1:8b via Ollama |
-| **Entity Extraction** | DashScope Qwen3.6-flash | deepseek-r1:8b via Ollama |
-| **Judge LLM** | DashScope qwen-plus | DashScope qwen-plus (cross-model eval, unchanged) |
+|-----------|----------------|--------------------------|
+| Index Agent Embedding | DashScope text-embedding-v3 | mxbai-embed-large-v1 (sentence-transformers) |
+| Index Agent Entity Extraction | DashScope qwen3.6-flash | deepseek-r1:8b (Ollama) |
 
-Enable:
+**What does NOT change in local mode:**
+- Online Agent LLM (always DashScope qwen3.6-flash)
+- Judge Agent LLM (always qwen-plus for cross-model eval)
+- Memory embeddings (always DashScope)
+- Reranker (always DashScope)
+
+**Usage:**
 ```bash
+# .env.development
 ENABLE_LOCAL=true
-# DEFAULT_LLM_MODEL=deepseek-r1:8b
-# LOCAL_OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
-# TRANSFORMERS_OFFLINE=1
-```
-
-Prerequisites: Ollama with deepseek-r1:8b, sentence-transformers with mxbai-embed-large-v1.
+LOCAL_OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
+LOCAL_LLM_MODEL=deepseek-r1:8b
+``
 
 ## Quick Start
 

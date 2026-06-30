@@ -1,4 +1,4 @@
-"""Application configuration management.
+ï»¿"""Application configuration management.
 
 This module handles environment-specific configuration loading, parsing, and management
 for the application. It includes environment detection, .env file loading, and
@@ -147,7 +147,7 @@ class Settings:
 
         # LangGraph Configuration
         self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-        self.DEFAULT_LLM_MODEL = os.getenv("DEFAULT_LLM_MODEL", "gpt-5-mini")
+        self.DEFAULT_LLM_MODEL = os.getenv("DEFAULT_LLM_MODEL", "qwen3.6-flash")
         self.SESSION_NAMING_ENABLED = os.getenv("SESSION_NAMING_ENABLED", "true").lower() == "true"
         self.DEFAULT_LLM_TEMPERATURE = float(os.getenv("DEFAULT_LLM_TEMPERATURE", "0.2"))
         self.MAX_TOKENS = int(os.getenv("MAX_TOKENS", "2000"))
@@ -178,7 +178,7 @@ class Settings:
         self.POSTGRES_MAX_OVERFLOW = int(os.getenv("POSTGRES_MAX_OVERFLOW", "10"))
         self.CHECKPOINT_TABLES = ["checkpoint_blobs", "checkpoint_writes", "checkpoints"]
 
-        # Valkey/Redis Cache Configuration (optional ¡ª if host is set, caching is enabled)
+        # Valkey/Redis Cache Configuration (optional ï¿½ï¿½ if host is set, caching is enabled)
         self.VALKEY_HOST = os.getenv("VALKEY_HOST", "")
         self.VALKEY_PORT = int(os.getenv("VALKEY_PORT", "6379"))
         self.VALKEY_DB = int(os.getenv("VALKEY_DB", "0"))
@@ -244,10 +244,6 @@ class Settings:
 
         # Apply environment-specific settings
         self.apply_environment_settings()
-        # Local mode override: default to deepseek-r1:8b
-        if self.ENABLE_LOCAL:
-            # Override to local model; user can still set DEFAULT_LLM_MODEL in env for explicit override
-            self.DEFAULT_LLM_MODEL = self.LOCAL_LLM_MODEL
 
 
     def apply_environment_settings(self):

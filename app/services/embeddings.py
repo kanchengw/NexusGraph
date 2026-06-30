@@ -72,7 +72,5 @@ class LocalSentenceEmbedding:
         return embedding[0].tolist()
 
 
-if settings.ENABLE_LOCAL:
-    embedding_service: DashScopeEmbedding | LocalSentenceEmbedding = LocalSentenceEmbedding()
-else:
-    embedding_service = DashScopeEmbedding()
+# Global singleton always uses DashScope (cloud). Index Agent uses LocalSentenceEmbedding explicitly.
+embedding_service = DashScopeEmbedding()
