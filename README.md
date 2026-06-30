@@ -152,13 +152,6 @@ ENABLE_LOCAL=true replaces cloud API calls **only for the Index Agent** (knowled
 | Index Agent Embedding | DashScope text-embedding-v3 | mxbai-embed-large-v1 (sentence-transformers) |
 | Index Agent Entity Extraction | DashScope qwen3.6-flash | deepseek-r1:8b (Ollama) |
 
-**What does NOT change in local mode:**
-- Online Agent LLM (always DashScope qwen3.6-flash)
-- Judge Agent LLM (always qwen-plus for cross-model eval)
-- Memory embeddings (always DashScope)
-- Reranker (always DashScope)
-
-**Usage:**
 ```bash
 # .env.development
 ENABLE_LOCAL=true
