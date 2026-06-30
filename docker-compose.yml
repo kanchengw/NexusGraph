@@ -98,7 +98,7 @@ services:
           memory: 1G
 
   prometheus:
-    profiles: [base, online]
+    profiles: [base, online, offline]
     image: prom/prometheus:latest
     container_name: graphrag-prometheus
     ports:
@@ -119,7 +119,7 @@ services:
           memory: 256M
 
   grafana:
-    profiles: [base, online]
+    profiles: [base, online, offline]
     image: grafana/grafana:12.0.0
     container_name: graphrag-grafana
     ports:
@@ -142,7 +142,7 @@ services:
           memory: 128M
 
   cadvisor:
-    profiles: [base, online]
+    profiles: [base, online, offline]
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: graphrag-cadvisor
     ports:

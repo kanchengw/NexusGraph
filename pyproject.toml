@@ -9,7 +9,7 @@ dependencies = [
     "langchain>=1.0.5",
     "langchain-core>=1.0.4",
     "langchain-openai>=1.0.2",
-    "langfuse==3.9.1",
+    "langfuse>=4.0.0",
     "httpx>=0.28.1",
     "langgraph>=1.0.2",
     "langgraph-checkpoint-postgres>=3.0.1",
@@ -141,7 +141,7 @@ stubPath = "typings"
 pythonVersion = "3.13"
 typeCheckingMode = "standard"
 
-# Tightened from defaults â€” cheap real-bug catchers
+# Tightened from defaults â€?cheap real-bug catchers
 reportDuplicateImport = "error"
 reportInvalidTypeVarUse = "error"
 reportSelfClsParameterName = "error"

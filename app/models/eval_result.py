@@ -1,4 +1,4 @@
-﻿"""EvalResult model for tracking evaluation history."""
+"""EvalResult model for tracking evaluation history."""
 
 from datetime import datetime, UTC
 from sqlmodel import Field, SQLModel
@@ -13,6 +13,8 @@ class EvalResult(SQLModel, table=True):
     faithfulness: float = Field(default=0.0)
     relevance: float = Field(default=0.0)
     context_precision: float = Field(default=0.0)
+    answer_correctness: float = Field(default=0.0)
+    context_recall: float = Field(default=0.0)
     top_k: int = Field(default=5)
     chunk_size: int = Field(default=512)
     chunk_overlap: int = Field(default=64)

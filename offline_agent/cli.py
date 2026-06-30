@@ -1,4 +1,4 @@
-"""Offline Agent CLI - delegates to structured agent modules."""
+﻿"""Offline Agent CLI - delegates to structured agent modules."""
 from __future__ import annotations
 import argparse, asyncio, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -19,7 +19,7 @@ def cmd_analyze(days: int = 7):
     """Generate analysis report via Optimizer Agent."""
     logger.info("cli_analyze_started", days=days)
     from app.core.optimizer_agent.analyzer import generate_all_reports, print_report_summary
-    report = generate_all_reports(days=days)
+    report = asyncio.run(generate_all_reports(days=days))
     print_report_summary(report)
     logger.info("cli_analyze_complete")
     return report

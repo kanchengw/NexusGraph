@@ -1,4 +1,4 @@
-"""Optimizer Agent - LangGraph state and graph with HIL."""
+﻿"""Optimizer Agent - LangGraph state and graph with HIL."""
 from __future__ import annotations
 from typing import Any
 from pydantic import BaseModel, Field
@@ -19,7 +19,7 @@ def create_optimizer_graph():
     async def analyze_node(state: OptimizerState) -> dict:
         from app.core.optimizer_agent.analyzer import generate_all_reports
         try:
-            report = generate_all_reports(days=state.days)
+            report = await generate_all_reports(days=state.days)
             return {"status": "analyzing", "report": report}
         except Exception as e:
             return {"status": "failed", "error": str(e)}

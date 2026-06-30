@@ -30,8 +30,8 @@ EVAL_RESULTS_DIR = pathlib.Path("evals/results")
 
 
 
-def load_langfuse_llm_metrics(minutes: int = 60) -> dict:
-    """Query Langfuse API for LLM latency and token usage from recent traces."""
+async def load_langfuse_llm_metrics(minutes: int = 60) -> dict:
+    """Query Langfuse API for LLM metrics: token usage, latency, per-path durations."""
     from app.core.config import settings
     pf = settings.LANGFUSE_PUBLIC_KEY or ""
     sf = settings.LANGFUSE_SECRET_KEY or ""
@@ -39,30 +39,60 @@ def load_langfuse_llm_metrics(minutes: int = 60) -> dict:
     if not pf or not sf:
         return {"error": "Langfuse not configured"}
     import base64
-    import requests
+    import httpx
     auth = base64.b64encode(f"{pf}:{sf}".encode()).decode()
     headers = {"Authorization": f"Basic {auth}"}
-    params = {"limit": 20, "type": "span", "name": "Langfuse"}
-    result = {"total_input_tokens": 0, "total_output_tokens": 0, "total_cost": 0, "avg_latency_ms": 0, "span_count": 0}
-    try:
-        r = requests.get(f"{host}/api/public/observations", headers=headers, params=params, timeout=10)
+    limit = 50
+
+    result = {
+        "total_input_tokens": 0, "total_output_tokens": 0, "total_cost": 0,
+        "avg_llm_latency_ms": 0, "llm_span_count": 0,
+        "avg_vector_search_ms": 0, "vector_search_count": 0,
+        "avg_bm25_search_ms": 0, "bm25_search_count": 0,
+        "avg_graph_expand_ms": 0, "graph_expand_count": 0,
+    }
+
+    async def _fetch_spans(name: str) -> list[dict]:
+        """Fetch observations by name from Langfuse API."""
+        params = {"limit": limit, "name": name}
+        async with httpx.AsyncClient() as client:
+            r = await client.get(f"{host}/api/public/observations", headers=headers, params=params, timeout=10)
         if r.status_code == 200:
-            data = r.json().get("data", [])
-            spans = [s for s in data if s.get("type") == "span" and s.get("name") == "Langfuse"]
-            if not spans:
-                return result
-            total_latency = 0
+            return r.json().get("data", [])
+        return []
+
+    try:
+        # 1. LLM inference spans (auto-captured by langfuse_callback_handler)
+        llm_spans = await _fetch_spans("Langfuse")
+        total_latency = 0
+        for s in llm_spans:
+            usage = s.get("usage", {}) or {}
+            result["total_input_tokens"] += usage.get("input", 0)
+            result["total_output_tokens"] += usage.get("output", 0)
+            result["total_cost"] += usage.get("totalCost", 0)
+            if s.get("endTime") and s.get("startTime"):
+                lat = (s["endTime"] - s["startTime"]) / 1000000
+                total_latency += lat
+                result["llm_span_count"] += 1
+        if result["llm_span_count"] > 0:
+            result["avg_llm_latency_ms"] = round(total_latency / result["llm_span_count"], 1)
+
+        # 2. Per-path retrieval spans (written by graphrag/__init__.py)
+        for span_name, count_key, avg_key in [
+            ("vector_search", "vector_search_count", "avg_vector_search_ms"),
+            ("bm25_search", "bm25_search_count", "avg_bm25_search_ms"),
+            ("graph_expand", "graph_expand_count", "avg_graph_expand_ms"),
+        ]:
+            spans = await _fetch_spans(span_name)
+            total_dur = 0
             for s in spans:
-                usage = s.get("usage", {}) or {}
-                result["total_input_tokens"] += usage.get("input", 0)
-                result["total_output_tokens"] += usage.get("output", 0)
-                result["total_cost"] += usage.get("totalCost", 0)
                 if s.get("endTime") and s.get("startTime"):
-                    lat = (s["endTime"] - s["startTime"]) / 1000000
-                    total_latency += lat
-                    result["span_count"] += 1
-            if result["span_count"] > 0:
-                result["avg_latency_ms"] = round(total_latency / result["span_count"], 1)
+                    dur = (s["endTime"] - s["startTime"]) / 1000000
+                    total_dur += dur
+                    result[count_key] += 1
+            if result[count_key] > 0:
+                result[avg_key] = round(total_dur / result[count_key], 1)
+
     except Exception as e:
         result["error"] = str(e)
     return result
@@ -92,10 +122,10 @@ def load_langfuse_llm_metrics(minutes: int = 60) -> dict:
     return history
 
 
-def load_prometheus_metrics():
+async def load_prometheus_metrics():
     result = {}
     try:
-        import requests
+        import httpx
         # System-level metrics from Prometheus (NOT LLM-level)
         # LLM latency/tokens come from Langfuse via eval report
         queries = {
@@ -103,10 +133,11 @@ def load_prometheus_metrics():
             "request_rate_5m": "rate(http_requests_total[5m])",
             "db_connections": "db_connections",
         }
-        for name, query in queries.items():
-            r = requests.get("http://localhost:9090/api/v1/query", params={"query": query}, timeout=5)
-            if r.status_code == 200:
-                result[name] = r.json().get("data", {}).get("result", [])
+        async with httpx.AsyncClient() as client:
+            for name, query in queries.items():
+                r = await client.get("http://localhost:9090/api/v1/query", params={"query": query}, timeout=5)
+                if r.status_code == 200:
+                    result[name] = r.json().get("data", {}).get("result", [])
     except Exception as e:
         result["error"] = str(e)
     return result
@@ -326,7 +357,7 @@ def load_eval_history(n: int = 5) -> list[dict]:
     return history
 
 
-def generate_all_reports(days: int = 7) -> dict[str, Any]:
+async def generate_all_reports(days: int = 7) -> dict[str, Any]:
     os.makedirs(REPORT_DIR, exist_ok=True)
     result = {
         "generated_at": datetime.utcnow().isoformat(),
@@ -334,8 +365,8 @@ def generate_all_reports(days: int = 7) -> dict[str, Any]:
         "feedback_correlation": feedback_correlation_report(days),
         "param_experiment": param_experiment_report(),
         "eval_history": load_eval_history(5),
-        "prometheus_metrics": load_prometheus_metrics(),
-        "langfuse_llm_metrics": load_langfuse_llm_metrics(),
+        "prometheus_metrics": await load_prometheus_metrics(),
+        "langfuse_llm_metrics": await load_langfuse_llm_metrics(),
     }
 
     path = os.path.join(REPORT_DIR, "analysis_report.json")
@@ -346,6 +377,31 @@ def generate_all_reports(days: int = 7) -> dict[str, Any]:
     with open(full_path, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2, ensure_ascii=False, default=str)
     print(f"Full report (with eval history + Prometheus) saved to {full_path}")
+
+    # Write Langfuse metrics to PG for Grafana
+    try:
+        lf_metrics = result.get("langfuse_llm_metrics", {})
+        if lf_metrics and "error" not in lf_metrics:
+            from app.models.langfuse_snapshot import LangfuseSnapshot
+            snap = LangfuseSnapshot(
+                vector_search_avg_ms=lf_metrics.get("avg_vector_search_ms", 0),
+                vector_search_count=lf_metrics.get("vector_search_count", 0),
+                bm25_search_avg_ms=lf_metrics.get("avg_bm25_search_ms", 0),
+                bm25_search_count=lf_metrics.get("bm25_search_count", 0),
+                graph_expand_avg_ms=lf_metrics.get("avg_graph_expand_ms", 0),
+                graph_expand_count=lf_metrics.get("graph_expand_count", 0),
+                llm_inference_avg_ms=lf_metrics.get("avg_llm_latency_ms", 0),
+                llm_span_count=lf_metrics.get("llm_span_count", 0),
+                total_input_tokens=lf_metrics.get("total_input_tokens", 0),
+                total_output_tokens=lf_metrics.get("total_output_tokens", 0),
+                total_cost=lf_metrics.get("total_cost", 0),
+            )
+            with Session(_engine) as ses:
+                ses.add(snap)
+                ses.commit()
+    except Exception as e:
+        logger.warning("langfuse_snapshot_write_failed", error=str(e))
+
     return result
 
 
@@ -396,6 +452,6 @@ if __name__ == "__main__":
     parser.add_argument("--summary", action="store_true", help="Print summary to console")
     args = parser.parse_args()
 
-    report = generate_all_reports(days=args.days)
+    report = asyncio.run(generate_all_reports(days=args.days))
     if args.summary:
         print_report_summary(report)

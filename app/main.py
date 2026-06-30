@@ -11,7 +11,7 @@ from fastapi import (
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -97,11 +97,11 @@ app.add_middleware(LoggingContextMiddleware)
 # Add custom metrics middleware
 app.add_middleware(MetricsMiddleware)
 
-# Add profiling middleware (DEBUG only â€?saves HTML to /tmp on slow requests)
+# Add profiling middleware (DEBUG only ï¿½?saves HTML to /tmp on slow requests)
 if settings.DEBUG:
     app.add_middleware(ProfilingMiddleware)
 
-# Add correlation ID middleware â€?must be outermost so request_id is set before all others
+# Add correlation ID middleware ï¿½?must be outermost so request_id is set before all others
 app.add_middleware(CorrelationIdMiddleware)
 
 # Set up rate limiter exception handler
@@ -154,19 +154,10 @@ app.add_middleware(
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
 
-@app.get("/")
-@limiter.limit(settings.RATE_LIMIT_ENDPOINTS["root"][0])
-async def root(request: Request):
-    """Root endpoint returning basic API information."""
-    logger.info("root_endpoint_called")
-    return {
-        "name": settings.PROJECT_NAME,
-        "version": settings.VERSION,
-        "status": "healthy",
-        "environment": settings.ENVIRONMENT.value,
-        "swagger_url": "/docs",
-        "redoc_url": "/redoc",
-    }
+@app.get("/", include_in_schema=False)
+async def root():
+    """Serve the NexusGraph chat UI."""
+    return FileResponse("app/static/index.html")
 
 
 @app.get("/health")
@@ -195,3 +186,4 @@ async def health_check(request: Request) -> JSONResponse:
     status_code = status.HTTP_200_OK if db_healthy else status.HTTP_503_SERVICE_UNAVAILABLE
 
     return JSONResponse(content=response, status_code=status_code)
+

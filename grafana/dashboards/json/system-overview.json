@@ -15,7 +15,11 @@
         }
       ],
       "title": "QPS by Endpoint",
-      "type": "timeseries"
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     },
     {
       "gridPos": {
@@ -32,7 +36,11 @@
         }
       ],
       "title": "Request Latency (p95)",
-      "type": "timeseries"
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     },
     {
       "gridPos": {
@@ -49,7 +57,11 @@
         }
       ],
       "title": "DB Connections",
-      "type": "timeseries"
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     },
     {
       "gridPos": {
@@ -66,7 +78,11 @@
         }
       ],
       "title": "LLM Inference Duration",
-      "type": "timeseries"
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     },
     {
       "gridPos": {
@@ -83,7 +99,11 @@
         }
       ],
       "title": "HTTP Status Breakdown",
-      "type": "timeseries"
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     }
   ],
   "timezone": "browser",

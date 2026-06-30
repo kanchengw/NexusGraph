@@ -1,328 +1,238 @@
 {
   "panels": [
     {
+      "title": "Avg Response Time (Last 7d)",
+      "type": "stat",
       "datasource": {
         "type": "postgres",
         "uid": "PCC52D03280B7034C"
       },
       "gridPos": {
-        "h": 6,
-        "w": 4,
         "x": 0,
-        "y": 0
+        "y": 0,
+        "w": 4,
+        "h": 3
       },
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT avg(unique_chunks)::float as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours'",
+          "rawSql": "SELECT COALESCE(AVG(response_time_ms),0)::int AS value FROM retrievalmetric WHERE timestamp > now() - interval '7 days'",
           "refId": "A"
         }
-      ],
-      "title": "Avg Unique Chunks per Query (Last 7d)",
-      "type": "stat"
+      ]
     },
     {
-      "datasource": {
-        "type": "postgres",
-        "uid": "PCC52D03280B7034C"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 4,
-        "y": 0
-      },
-      "targets": [
-        {
-          "format": "table",
-          "rawSql": "SELECT avg(response_time_ms)::float as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours'",
-          "refId": "A"
-        }
-      ],
-      "title": "Avg Response Time (ms, Last 7d)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "PCC52D03280B7034C"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 8,
-        "y": 0
-      },
-      "targets": [
-        {
-          "format": "table",
-          "rawSql": "SELECT count(*)::int as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours'",
-          "refId": "A"
-        }
-      ],
       "title": "Total Queries (Last 7d)",
-      "type": "stat"
-    },
-    {
+      "type": "stat",
       "datasource": {
         "type": "postgres",
         "uid": "PCC52D03280B7034C"
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 6
-      },
-      "legend": {
-        "show": true
-      },
-      "targets": [
-        {
-          "format": "time_series",
-          "rawSql": "SELECT timestamp as time, vector_count as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours' ORDER BY timestamp",
-          "refId": "A"
-        },
-        {
-          "format": "time_series",
-          "rawSql": "SELECT timestamp as time, bm25_count as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours' ORDER BY timestamp",
-          "refId": "B"
-        },
-        {
-          "format": "time_series",
-          "rawSql": "SELECT timestamp as time, graph_count as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours' ORDER BY timestamp",
-          "refId": "C"
-        }
-      ],
-      "title": "Path Contribution Trend",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "PCC52D03280B7034C"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 6
-      },
-      "targets": [
-        {
-          "format": "table",
-          "rawSql": "SELECT faithfulness, relevance, context_precision, top_k, chunk_size, num_samples, created_at::date FROM evalresult ORDER BY created_at DESC LIMIT 10",
-          "refId": "A"
-        }
-      ],
-      "title": "Eval Score History (Last 10 Runs)",
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "PCC52D03280B7034C"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 14
-      },
-      "targets": [
-        {
-          "format": "table",
-          "rawSql": "SELECT response_time_ms FROM retrievalmetric WHERE timestamp > now() - interval '24 hours'",
-          "refId": "A"
-        }
-      ],
-      "title": "Response Time Distribution",
-      "type": "histogram"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "PCC52D03280B7034C"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 14
-      },
-      "legend": {
-        "show": true
-      },
-      "targets": [
-        {
-          "format": "time_series",
-          "rawSql": "SELECT timestamp as time, overlap_vector_bm25::float as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours' ORDER BY timestamp",
-          "refId": "A"
-        },
-        {
-          "format": "time_series",
-          "rawSql": "SELECT timestamp as time, vector_only::float as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours' ORDER BY timestamp",
-          "refId": "B"
-        },
-        {
-          "format": "time_series",
-          "rawSql": "SELECT timestamp as time, bm25_only::float as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours' ORDER BY timestamp",
-          "refId": "C"
-        }
-      ],
-      "title": "Overlap Analysis",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "PCC52D03280B7034C"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 14
-      },
-      "targets": [
-        {
-          "format": "table",
-          "rawSql": "SELECT f.rating, r.vector_count, r.bm25_count, r.unique_chunks, r.response_time_ms FROM feedback f JOIN retrievalmetric r ON f.query = r.query ORDER BY f.created_at DESC LIMIT 20",
-          "refId": "A"
-        }
-      ],
-      "title": "Feedback Correlation",
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "PCC52D03280B7034C"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 0,
-        "y": 22
-      },
-      "targets": [
-        {
-          "format": "table",
-          "rawSql": "SELECT COALESCE(AVG(rating)::numeric(3,2), 0) AS value FROM feedback WHERE created_at > now() - interval '24 hours'",
-          "refId": "A"
-        }
-      ],
-      "title": "Avg Rating (Last 7d)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "PCC52D03280B7034C"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 4,
         "x": 4,
-        "y": 22
-      },
-      "targets": [
-        {
-          "format": "table",
-          "rawSql": "SELECT COUNT(*)::int AS value FROM feedback WHERE created_at > now() - interval '24 hours'",
-          "refId": "A"
-        }
-      ],
-      "title": "Total Feedback Count (Last 7d)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "PCC52D03280B7034C"
-      },
-      "gridPos": {
-        "h": 6,
+        "y": 0,
         "w": 4,
-        "x": 8,
-        "y": 22
+        "h": 3
       },
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT COALESCE((SUM(CASE WHEN rating < 3 THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) * 100)::numeric(4,1), 0) AS value FROM feedback WHERE created_at > now() - interval '24 hours'",
+          "rawSql": "SELECT COUNT(*)::int AS value FROM retrievalmetric WHERE timestamp > now() - interval '7 days'",
           "refId": "A"
         }
-      ],
-      "title": "Low Rating % (<3)",
-      "type": "stat"
+      ]
     },
     {
+      "title": "Avg Rating (Last 7d)",
+      "type": "stat",
       "datasource": {
         "type": "postgres",
         "uid": "PCC52D03280B7034C"
       },
       "gridPos": {
-        "h": 8,
-        "w": 8,
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 3
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT COALESCE(ROUND(AVG(rating)::numeric,2),0) AS value FROM feedback WHERE created_at > now() - interval '7 days'",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Eval Score History (Last 10 Runs)",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
         "x": 0,
-        "y": 28
+        "y": 4,
+        "w": 12,
+        "h": 6
       },
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT rating::text AS metric, COUNT(*)::int AS value FROM feedback WHERE created_at > now() - interval '24 hours' GROUP BY rating ORDER BY rating",
+          "rawSql": "SELECT created_at::date AS date, ROUND(faithfulness::numeric,3) AS faithfulness, ROUND(relevance::numeric,3) AS relevance, ROUND(context_precision::numeric,3) AS precision, ROUND(answer_correctness::numeric,3) AS correctness, ROUND(context_recall::numeric,3) AS recall, num_samples, top_k, chunk_size FROM evalresult ORDER BY created_at DESC LIMIT 10",
           "refId": "A"
         }
-      ],
-      "title": "Rating Distribution",
-      "type": "bargauge"
+      ]
     },
     {
+      "title": "Path Contribution Trend",
+      "type": "graph",
       "datasource": {
         "type": "postgres",
         "uid": "PCC52D03280B7034C"
       },
       "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 28
+        "x": 0,
+        "y": 11,
+        "w": 6,
+        "h": 6
       },
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT DATE(created_at) AS time, AVG(rating)::numeric(3,2) AS value FROM feedback WHERE created_at > now() - interval '24 hours' GROUP BY DATE(created_at) ORDER BY time",
+          "rawSql": "SELECT timestamp AS time, vector_count AS value FROM retrievalmetric WHERE timestamp > now() - interval '7 days' ORDER BY timestamp",
+          "refId": "vector"
+        },
+        {
+          "format": "table",
+          "rawSql": "SELECT timestamp AS time, bm25_count AS value FROM retrievalmetric WHERE timestamp > now() - interval '7 days' ORDER BY timestamp",
+          "refId": "bm25"
+        },
+        {
+          "format": "table",
+          "rawSql": "SELECT timestamp AS time, graph_count AS value FROM retrievalmetric WHERE timestamp > now() - interval '7 days' ORDER BY timestamp",
+          "refId": "graph"
+        }
+      ]
+    },
+    {
+      "title": "Response Time Distribution",
+      "type": "histogram",
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 11,
+        "w": 6,
+        "h": 6
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT response_time_ms FROM retrievalmetric WHERE timestamp > now() - interval '7 days'",
           "refId": "A"
         }
-      ],
+      ]
+    },
+    {
+      "title": "Overlap Analysis (Last 7d)",
+      "type": "graph",
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 6,
+        "h": 6
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT timestamp AS time, overlap_vector_bm25::float AS value FROM retrievalmetric WHERE timestamp > now() - interval '7 days' ORDER BY timestamp",
+          "refId": "overlap"
+        },
+        {
+          "format": "table",
+          "rawSql": "SELECT timestamp AS time, vector_only::float AS value FROM retrievalmetric WHERE timestamp > now() - interval '7 days' ORDER BY timestamp",
+          "refId": "vonly"
+        },
+        {
+          "format": "table",
+          "rawSql": "SELECT timestamp AS time, bm25_only::float AS value FROM retrievalmetric WHERE timestamp > now() - interval '7 days' ORDER BY timestamp",
+          "refId": "bonly"
+        }
+      ]
+    },
+    {
       "title": "Rating Trend (Daily Avg, Last 7d)",
-      "type": "timeseries"
-    },
-    {
+      "type": "graph",
       "datasource": {
         "type": "postgres",
         "uid": "PCC52D03280B7034C"
       },
       "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 28
+        "x": 6,
+        "y": 18,
+        "w": 6,
+        "h": 6
       },
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT id, rating, LEFT(query, 80) AS query, created_at FROM feedback WHERE rating < 3 AND created_at > now() - interval '24 hours' ORDER BY created_at DESC LIMIT 20",
+          "rawSql": "SELECT DATE(created_at) AS time, ROUND(AVG(rating)::numeric,2) AS value FROM feedback WHERE created_at > now() - interval '7 days' GROUP BY DATE(created_at) ORDER BY time",
           "refId": "A"
         }
-      ],
-      "title": "Recent Low-Rated Queries (<3)",
-      "type": "table"
+      ]
+    },
+    {
+      "title": "LLM Cost & Token Usage",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT fetched_at::date AS date, total_input_tokens, total_output_tokens, ROUND(total_cost::numeric,4) AS cost_usd FROM langfuse_snapshot ORDER BY fetched_at DESC LIMIT 10",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Per-Path Latency (ms)",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 25,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT fetched_at::date AS date, ROUND(vector_search_avg_ms::numeric,1) AS vector_ms, ROUND(bm25_search_avg_ms::numeric,1) AS bm25_ms, ROUND(graph_expand_avg_ms::numeric,1) AS graph_ms, ROUND(llm_inference_avg_ms::numeric,1) AS llm_ms FROM langfuse_snapshot ORDER BY fetched_at DESC LIMIT 10",
+          "refId": "A"
+        }
+      ]
     }
   ],
   "timezone": "browser",
-  "title": "Retrieval Insights",
+  "title": "NexusGraph Retrieval Insights",
   "uid": "retrieval-insights",
   "time": {
     "from": "now-24h",

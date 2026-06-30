@@ -1,4 +1,4 @@
-﻿"""Feedback API endpoints for data flywheel."""
+"""Feedback API endpoints for data flywheel."""
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -6,11 +6,12 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.core.logging import logger
 from app.models.feedback import Feedback
+from app.core.config import settings
 
 router = APIRouter(prefix="/graphrag/feedback", tags=["GraphRAG"])
 
 # Use localhost directly (not Docker internal hostname)
-_FEEDBACK_DB_URL = "postgresql://myuser:mypassword@localhost:5432/mydb"
+_FEEDBACK_DB_URL = f'postgresql://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}'
 _engine = create_engine(_FEEDBACK_DB_URL, pool_pre_ping=True)
 
 

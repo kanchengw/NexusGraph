@@ -16,8 +16,9 @@ from app.core.logging import logger
 from app.core.metrics import llm_inference_duration_seconds
 from app.core.observability import get_langfuse, langfuse_force_flush, langfuse_start_trace, langfuse_span, langfuse_end_trace
 from app.models.retrieval_metric import RetrievalMetric
+from app.core.config import settings
 
-_METRIC_DB_URL = "postgresql://myuser:mypassword@localhost:5432/mydb"
+_METRIC_DB_URL = f'postgresql://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}'
 _metric_engine = create_engine(_METRIC_DB_URL, pool_pre_ping=True)
 
 router = APIRouter(prefix="/graphrag", tags=["GraphRAG"])

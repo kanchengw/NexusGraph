@@ -1,7 +1,7 @@
-"""RAGBench evaluation pipeline for GraphRAG.
+﻿"""RAGBench evaluation pipeline for GraphRAG.
 
 Evaluates GraphRAG performance using RAGBench techqa dataset.
-Metrics: faithfulness, relevance, context_precision.
+Metrics: faithfulness, relevance, context_precision, answer_correctness, context_recall.
 Cross-model LLM-as-Judge using qwen-plus for evaluation.
 """
 
@@ -22,9 +22,8 @@ from app.core.logging import logger
 from app.models.eval_result import EvalResult
 from sqlmodel import Session, create_engine
 
-_EVAL_DB_URL = "postgresql://myuser:mypassword@localhost:5432/mydb"
+_EVAL_DB_URL = f'postgresql://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}'
 _eval_engine = create_engine(_EVAL_DB_URL, pool_pre_ping=True)
-
 
 # Cross-model judge: use qwen-plus for more objective evaluation
 JUDGE_LLM = ChatOpenAI(
@@ -34,7 +33,6 @@ JUDGE_LLM = ChatOpenAI(
     temperature=0,
     max_tokens=1024,
 )
-
 
 async def evaluate_faithfulness(question: str, answer: str, context: str) -> float:
     """Evaluate answer faithfulness against context (0-1)."""
@@ -54,7 +52,6 @@ Faithfulness score:"""
     except (ValueError, TypeError):
         return 0.0
 
-
 async def evaluate_relevance(question: str, answer: str) -> float:
     """Evaluate answer relevance to the question (0-1)."""
     prompt = f"""You are an evaluation judge. Rate the relevance of the answer to the question.
@@ -72,7 +69,6 @@ Relevance score:"""
     except (ValueError, TypeError):
         return 0.0
 
-
 async def evaluate_context_precision(relevant_chunks: list[str], question: str) -> float:
     """Evaluate what proportion of retrieved context is actually relevant."""
     if not relevant_chunks:
@@ -88,8 +84,19 @@ Context: {chunk[:500]}"""
             relevant_count += 1
     return relevant_count / min(len(relevant_chunks), 5)
 
-async def evaluate_answer_correctness(question, answer, ground_truth):
-    prompt = "You are an evaluation judge. Rate the correctness."
+async def evaluate_answer_correctness(question: str, answer: str, ground_truth: str) -> float:
+    """Evaluate answer correctness against ground truth (0-1)."""
+    prompt = f"""You are an evaluation judge. Rate the correctness of the answer compared to the ground truth.
+
+Question: {question}
+Ground Truth: {ground_truth}
+Answer: {answer}
+
+Score from 0 to 1 based on how accurate and complete the answer is compared to the ground truth.
+A correct answer covers the key information from the ground truth without hallucination.
+Return ONLY a number between 0 and 1.
+
+Correctness score:"""
     response = await JUDGE_LLM.ainvoke(prompt)
     try:
         score = float(response.content.strip())
@@ -98,21 +105,26 @@ async def evaluate_answer_correctness(question, answer, ground_truth):
         logger.warning("eval_score_parse_error", metric="answer_correctness", raw=response.content)
         return 0.0
 
-
-async def evaluate_context_recall(retrieved_chunks, ground_truth_docs):
+async def evaluate_context_recall(retrieved_chunks: list[str], ground_truth_docs: list[str]) -> float:
+    """Evaluate whether the retrieved context contains all info needed to answer (0-1)."""
     if not ground_truth_docs or not retrieved_chunks:
         return 0.0
-    gt = ''.join([str(d) for d in ground_truth_docs[:3]]).lower()
-    relevant = sum(1 for c in retrieved_chunks if gt[:80].lower() in c.lower())
-    return min(1.0, relevant / max(len(ground_truth_docs), 1))
+    context_str = "\n".join(retrieved_chunks[:5])[:2000]
+    ground_truth_str = "\n".join([str(d) for d in ground_truth_docs[:3]])[:1500]
+    prompt = f"""You are an evaluation judge. Rate the context recall.
 
+Ground Truth Information: {ground_truth_str}
+Retrieved Context: {context_str}
 
-async def evaluate_hit_rate(retrieved_ids, relevant_id):
-    if not relevant_id:
+Score from 0 to 1 based on whether ALL key information from the ground truth is covered by the retrieved context.
+Return ONLY a number between 0 and 1.
+
+Context recall score:"""
+    response = await JUDGE_LLM.ainvoke(prompt)
+    try:
+        return max(0.0, min(1.0, float(response.content.strip())))
+    except (ValueError, TypeError):
         return 0.0
-    return 1.0 if relevant_id in retrieved_ids else 0.0
-
-
 
 async def run_evaluation(
     split: str = "test",
@@ -156,10 +168,6 @@ Provide a concise, accurate answer:"""
             context_precision = await evaluate_context_precision(context_chunks, question)
             answer_correctness = await evaluate_answer_correctness(question, answer, ground_truth)
             context_recall = await evaluate_context_recall(context_chunks, row.get("documents", []))
-            hit_rate = await evaluate_hit_rate(
-                [r.get("chunk_id", "") for r in rag_result.get("vector_context", [])],
-                row.get("documents", [None])[0] if row.get("documents") else None,
-            )
             elapsed_ms = int((time.time() - t0) * 1000)
 
             results.append({
@@ -170,9 +178,7 @@ Provide a concise, accurate answer:"""
                 "relevance": relevance,
                 "context_precision": context_precision,
                 "answer_correctness": answer_correctness,
-                "context_recall": context_recall,
-                "hit_rate": hit_rate,
-                "response_time_ms": elapsed_ms,
+                "context_recall": context_recall,                "response_time_ms": elapsed_ms,
             })
 
             logger.info(
@@ -192,9 +198,7 @@ Provide a concise, accurate answer:"""
         "relevance": sum(r["relevance"] for r in results) / len(results) if results else 0,
         "context_precision": sum(r["context_precision"] for r in results) / len(results) if results else 0,
         "answer_correctness": sum(r["answer_correctness"] for r in results) / len(results) if results else 0,
-        "context_recall": sum(r["context_recall"] for r in results) / len(results) if results else 0,
-        "hit_rate": sum(r["hit_rate"] for r in results) / len(results) if results else 0,
-        "avg_response_time_ms": sum(r["response_time_ms"] for r in results) / len(results) if results else 0,
+        "context_recall": sum(r["context_recall"] for r in results) / len(results) if results else 0,        "avg_response_time_ms": sum(r["response_time_ms"] for r in results) / len(results) if results else 0,
     }
 
     report = {
@@ -224,7 +228,8 @@ Provide a concise, accurate answer:"""
             faithfulness=metrics["faithfulness"],
             relevance=metrics["relevance"],
             context_precision=metrics["context_precision"],
-            top_k=settings.GRAPHRAG_TOP_K,
+            answer_correctness=metrics["answer_correctness"],
+            context_recall=metrics["context_recall"],            top_k=settings.GRAPHRAG_TOP_K,
             chunk_size=settings.GRAPHRAG_CHUNK_SIZE,
             chunk_overlap=settings.GRAPHRAG_CHUNK_OVERLAP,
             judge_model=report["config"]["judge_model"],
@@ -240,8 +245,6 @@ Provide a concise, accurate answer:"""
 
     logger.info("eval_complete", metrics=metrics, output=output_path)
     return report
-
-
 
 import httpx
 
@@ -291,4 +294,5 @@ async def compare_with_baseline() -> dict[str, Any]:
         },
     }
     return comparison
+
 
