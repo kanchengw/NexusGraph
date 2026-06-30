@@ -155,8 +155,8 @@ class Settings:
         self.LLM_TOTAL_TIMEOUT = int(os.getenv("LLM_TOTAL_TIMEOUT", "60"))
 
         # Long term memory Configuration
-        self.LONG_TERM_MEMORY_MODEL = os.getenv("LONG_TERM_MEMORY_MODEL", "gpt-5-nano")
-        self.LONG_TERM_MEMORY_EMBEDDER_MODEL = os.getenv("LONG_TERM_MEMORY_EMBEDDER_MODEL", "text-embedding-3-small")
+        self.LONG_TERM_MEMORY_MODEL = os.getenv("LONG_TERM_MEMORY_MODEL", "qwen3.6-flash")
+        self.LONG_TERM_MEMORY_EMBEDDER_MODEL = os.getenv("LONG_TERM_MEMORY_EMBEDDER_MODEL", "text-embedding-v3")
         self.LONG_TERM_MEMORY_COLLECTION_NAME = os.getenv("LONG_TERM_MEMORY_COLLECTION_NAME", "longterm_memory")
 
         # Logging Configuration
@@ -178,7 +178,7 @@ class Settings:
         self.POSTGRES_MAX_OVERFLOW = int(os.getenv("POSTGRES_MAX_OVERFLOW", "10"))
         self.CHECKPOINT_TABLES = ["checkpoint_blobs", "checkpoint_writes", "checkpoints"]
 
-        # Valkey/Redis Cache Configuration (optional â€” if host is set, caching is enabled)
+        # Valkey/Redis Cache Configuration (optional ¡ª if host is set, caching is enabled)
         self.VALKEY_HOST = os.getenv("VALKEY_HOST", "")
         self.VALKEY_PORT = int(os.getenv("VALKEY_PORT", "6379"))
         self.VALKEY_DB = int(os.getenv("VALKEY_DB", "0"))
@@ -234,8 +234,21 @@ class Settings:
         self.EVALUATION_API_KEY = os.getenv("EVALUATION_API_KEY", self.LLM_API_KEY)
         self.EVALUATION_SLEEP_TIME = int(os.getenv("EVALUATION_SLEEP_TIME", "10"))
 
+        
+        # Local Mode Configuration (Ollama)
+        self.ENABLE_LOCAL = os.getenv("ENABLE_LOCAL", "false").lower() in ("true", "1", "t", "yes")
+        self.LOCAL_OLLAMA_BASE_URL = os.getenv("LOCAL_OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1")
+        self.LOCAL_EMBEDDING_MODEL = os.getenv("LOCAL_EMBEDDING_MODEL", "mxbai-embed-large")
+        self.LOCAL_EMBEDDING_DIM = int(os.getenv("LOCAL_EMBEDDING_DIM", "1024"))
+        self.LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "deepseek-r1:8b")
+
         # Apply environment-specific settings
         self.apply_environment_settings()
+        # Local mode override: default to deepseek-r1:8b
+        if self.ENABLE_LOCAL:
+            # Override to local model; user can still set DEFAULT_LLM_MODEL in env for explicit override
+            self.DEFAULT_LLM_MODEL = self.LOCAL_LLM_MODEL
+
 
     def apply_environment_settings(self):
         """Apply environment-specific settings based on the current environment."""
@@ -277,3 +290,4 @@ class Settings:
 
 # Create settings instance
 settings = Settings()
+

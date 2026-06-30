@@ -30,6 +30,16 @@ class LLMRegistry:
 
     LLMS: List[Dict[str, Any]] = [
         {
+            "name": "deepseek-r1:8b",
+            "llm": ChatOpenAI(
+                model="deepseek-r1:8b",
+                api_key=SecretStr("ollama"),
+                base_url="http://127.0.0.1:11434/v1",
+                temperature=0.2,
+            ),
+        },
+
+        {
             "name": "qwen3.6-flash",
             "llm": ChatOpenAI(
                 model="qwen3.6-flash",

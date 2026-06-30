@@ -15,6 +15,7 @@ from sqlmodel import (
     select,
 )
 
+from app.core.metrics import db_connections
 from app.core.config import (
     Environment,
     settings,
@@ -53,6 +54,17 @@ class DatabaseService:
                 pool_timeout=30,  # Connection timeout (seconds)
                 pool_recycle=1800,  # Recycle connections after 30 minutes
             )
+
+            # Wire up Prometheus gauge via pool events
+            # checkedout() = actively used connections, checkedin() = idle pool
+            from sqlalchemy import event
+            @event.listens_for(self.engine, 'checkout')
+            def _on_checkout(dbapi_con, con_record, con_proxy):
+                db_connections.set(float(self.engine.pool.checkedout()))
+
+            @event.listens_for(self.engine, 'checkin')
+            def _on_checkin(dbapi_con, con_record):
+                db_connections.set(float(self.engine.pool.checkedout()))
 
             logger.info(
                 "database_initialized",

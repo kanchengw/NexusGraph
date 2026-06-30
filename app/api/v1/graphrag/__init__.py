@@ -13,7 +13,8 @@ from sqlmodel import Session, create_engine
 from app.core.graphrag.models import clear_database
 from app.core.graphrag.retriever import GraphRAGRetriever
 from app.core.logging import logger
-from app.core.observability import get_langfuse
+from app.core.metrics import llm_inference_duration_seconds
+from app.core.observability import get_langfuse, langfuse_force_flush, langfuse_start_trace, langfuse_span, langfuse_end_trace
 from app.models.retrieval_metric import RetrievalMetric
 
 _METRIC_DB_URL = "postgresql://myuser:mypassword@localhost:5432/mydb"
@@ -44,14 +45,13 @@ async def query_graphrag(request: QueryRequest) -> QueryResponse:
     start_time = time.monotonic()
 
     # Generate global trace_id for Online/Offline correlation
-    trace_id = str(uuid.uuid4())
+    trace_id = uuid.uuid4().hex  # 32-char hex (no hyphens) required by Langfuse 4.x
 
-    # Langfuse trace
+    # Langfuse trace (SDK 4.x API)
     lf = get_langfuse()
-    try:
-        trace = lf.trace(id=trace_id, name="graphrag_query", input=request.question) if lf else None
-    except Exception:
-        trace = None
+    trace_obs = None
+    if lf:
+        trace_obs, trace_id_, _ = langfuse_start_trace(lf, trace_id, "graphrag_query", request.question)
 
     try:
         result = await retriever.local_search(request.question, request.top_k)
@@ -79,15 +79,18 @@ async def query_graphrag(request: QueryRequest) -> QueryResponse:
                         doc_titles.append(title)
             result["source_docs"] = doc_titles[:10]
 
-            answer = llm.invoke(
-                f"Context:\n{context_text}\n\n"
-                f"Question: {request.question}\n\n"
-                f"Instructions: Answer based ONLY on the context above. "
-                f"If the context does not contain relevant information to answer the question, "
-                f"say 'The knowledge base does not contain information about this topic.' "
-                f"Do not make up answers. Do not guess.\n\n"
-                f"Answer:"
-            ).content
+            from app.core.config import settings as _settings
+            model_name = getattr(_settings, 'DEFAULT_LLM_MODEL', 'unknown')
+            with llm_inference_duration_seconds.labels(model=model_name).time():
+                answer = llm.invoke(
+                    f"Context:\n{context_text}\n\n"
+                    f"Question: {request.question}\n\n"
+                    f"Instructions: Answer based ONLY on the context above. "
+                    f"If the context does not contain relevant information to answer the question, "
+                    f"say 'The knowledge base does not contain information about this topic.' "
+                    f"Do not make up answers. Do not guess.\n\n"
+                    f"Answer:"
+                ).content
             result["answer"] = answer
         else:
             result["answer"] = "(no relevant context found)"
@@ -100,20 +103,12 @@ async def query_graphrag(request: QueryRequest) -> QueryResponse:
             response_time_ms=elapsed_ms,
         )
 
-        # Langfuse: log retrieval metrics as trace span
-        if trace:
-            trace.update(
-                output=f"vector={metrics.get('vector_count',0)}, bm25={metrics.get('bm25_count',0)}, graph={metrics.get('graph_count',0)}",
-                metadata={
-                    "retrieval_metrics": metrics,
-                    "response_time_ms": elapsed_ms,
-                    "retrieval_type": "3_path_fusion",
-                },
-            )
+        # Langfuse: log retrieval metrics as trace span (SDK 4.x API)
+        if trace_obs is not None:
             # Create per-path spans
-            trace.span(name="vector_search", input=request.question, output=f"{metrics.get('vector_count',0)} chunks")
-            trace.span(name="bm25_search", input=request.question, output=f"{metrics.get('bm25_count',0)} chunks")
-            trace.span(name="graph_expand", input=str(request.question)[:50], output=f"{metrics.get('graph_count',0)} chunks")
+            langfuse_span(lf, trace_id, "vector_search", request.question, f"{metrics.get('vector_count',0)} chunks")
+            langfuse_span(lf, trace_id, "bm25_search", request.question, f"{metrics.get('bm25_count',0)} chunks")
+            langfuse_span(lf, trace_id, "graph_expand", str(request.question)[:50], f"{metrics.get('graph_count',0)} chunks")
 
         # Write retrieval metrics to PostgreSQL
         try:
@@ -137,6 +132,23 @@ async def query_graphrag(request: QueryRequest) -> QueryResponse:
         except Exception as e:
             logger.warning("metric_write_failed", error=str(e))
 
+        # Force-flush Langfuse traces after each query so they appear in the cloud in real time
+        try:
+            langfuse_force_flush()
+        except Exception:
+            pass
+        # End trace observation (SDK 4.x)
+        if trace_obs is not None:
+            langfuse_end_trace(
+                trace_obs,
+                output=f"vector={metrics.get("vector_count",0)}, bm25={metrics.get("bm25_count",0)}, graph={metrics.get("graph_count",0)}",
+                metadata={
+                    "retrieval_metrics": metrics,
+                    "response_time_ms": elapsed_ms,
+                    "retrieval_type": "3_path_fusion",
+                },
+            )
+
         return QueryResponse(
             question=request.question,
             answer=result.get("answer", ""),
@@ -148,8 +160,8 @@ async def query_graphrag(request: QueryRequest) -> QueryResponse:
         )
     except Exception as e:
         logger.exception("graphrag_query_failed", question=request.question)
-        if trace:
-            trace.update(status="error", metadata={"error": str(e)})
+        if trace_obs is not None:
+            langfuse_end_trace(trace_obs, output="", metadata={"error": str(e)}, status="error")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         await retriever.close()

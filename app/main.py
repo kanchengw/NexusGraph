@@ -29,7 +29,7 @@ from app.core.middleware import (
     MetricsMiddleware,
     ProfilingMiddleware,
 )
-from app.core.observability import langfuse_init
+from app.core.observability import langfuse_init, langfuse_flush
 from app.services.database import database_service
 from app.services.memory import memory_service
 
@@ -77,6 +77,7 @@ async def lifespan(app: FastAPI):
         await agent._connection_pool.close()
         logger.info("connection_pool_closed")
     logger.info("application_shutdown")
+    langfuse_flush()
 
 
 app = FastAPI(
@@ -96,11 +97,11 @@ app.add_middleware(LoggingContextMiddleware)
 # Add custom metrics middleware
 app.add_middleware(MetricsMiddleware)
 
-# Add profiling middleware (DEBUG only â€” saves HTML to /tmp on slow requests)
+# Add profiling middleware (DEBUG only â€?saves HTML to /tmp on slow requests)
 if settings.DEBUG:
     app.add_middleware(ProfilingMiddleware)
 
-# Add correlation ID middleware â€” must be outermost so request_id is set before all others
+# Add correlation ID middleware â€?must be outermost so request_id is set before all others
 app.add_middleware(CorrelationIdMiddleware)
 
 # Set up rate limiter exception handler

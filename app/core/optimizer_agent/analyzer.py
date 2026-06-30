@@ -15,7 +15,8 @@ from typing import Any
 
 from sqlmodel import Session, create_engine, text
 
-_DB_URL = "postgresql://myuser:mypassword@localhost:5432/mydb"
+from app.core.config import settings as _as
+_DB_URL = f"postgresql://{_as.POSTGRES_USER}:{_as.POSTGRES_PASSWORD}@{_as.POSTGRES_HOST}:{_as.POSTGRES_PORT}/{_as.POSTGRES_DB}"
 _engine = create_engine(_DB_URL, pool_pre_ping=True)
 
 REPORT_DIR = "evals/reports"
@@ -235,7 +236,7 @@ def _diagnose_feedback(low: dict | None, high: dict | None) -> list[str]:
 
     if (low.get("avg_vector_only", 5) or 5) > (high.get("avg_vector_only", 3) or 3) + 2:
         diag.append("Low-rated queries retrieve MORE unique chunks than high-rated: possible noise")
-    if (low.get("avg_ms", 1000) or 1000) > (high.get("avg_ms", 500) or 500) * 1.5:
+    if (low.get("avg_ms", 1000) or 1000) > (float(high.get("avg_ms", 500)) or 500) * 1.5:
         diag.append("Low-rated queries have significantly higher latency")
     if (low.get("avg_bm25", 0) or 0) < (high.get("avg_bm25", 1) or 1):
         diag.append("BM25 contributes less to low-rated queries: check keyword quality")

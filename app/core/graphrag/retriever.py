@@ -135,10 +135,7 @@ class GraphRAGRetriever:
 
         all_ids_set = set(all_ids)
         merged_chunks = list({c.get("chunk_id", ""): c for c in (vector_results + bm25_results + graph_results) if c.get("chunk_id", "") in all_ids_set}.values())
-        if getattr(settings,"GRAPHRAG_ENABLE_RERANKER",False):
-            reranked = await self.rerank_with_llm(query, merged_chunks, top_k or self.top_k)
-        else:
-            reranked = merged_chunks[:top_k]
+        reranked = await self.rerank_with_llm(query, merged_chunks, k)
 
         metrics = {
             "vector_count": len(vector_results),

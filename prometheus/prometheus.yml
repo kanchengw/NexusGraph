@@ -1,4 +1,4 @@
-global:
+﻿global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
@@ -7,7 +7,7 @@ scrape_configs:
     metrics_path: '/metrics'
     scheme: 'http'
     static_configs:
-      - targets: ['app:8000']
+      - targets: ['host.docker.internal:8000']
 
   - job_name: 'cadvisor'
     static_configs:

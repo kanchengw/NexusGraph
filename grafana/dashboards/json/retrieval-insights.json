@@ -1,0 +1,346 @@
+{
+  "panels": [
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT avg(unique_chunks)::float as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours'",
+          "refId": "A"
+        }
+      ],
+      "title": "Avg Unique Chunks per Query (Last 7d)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT avg(response_time_ms)::float as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours'",
+          "refId": "A"
+        }
+      ],
+      "title": "Avg Response Time (ms, Last 7d)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT count(*)::int as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours'",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Queries (Last 7d)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "legend": {
+        "show": true
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT timestamp as time, vector_count as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours' ORDER BY timestamp",
+          "refId": "A"
+        },
+        {
+          "format": "time_series",
+          "rawSql": "SELECT timestamp as time, bm25_count as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours' ORDER BY timestamp",
+          "refId": "B"
+        },
+        {
+          "format": "time_series",
+          "rawSql": "SELECT timestamp as time, graph_count as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours' ORDER BY timestamp",
+          "refId": "C"
+        }
+      ],
+      "title": "Path Contribution Trend",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT faithfulness, relevance, context_precision, top_k, chunk_size, num_samples, created_at::date FROM evalresult ORDER BY created_at DESC LIMIT 10",
+          "refId": "A"
+        }
+      ],
+      "title": "Eval Score History (Last 10 Runs)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 14
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT response_time_ms FROM retrievalmetric WHERE timestamp > now() - interval '24 hours'",
+          "refId": "A"
+        }
+      ],
+      "title": "Response Time Distribution",
+      "type": "histogram"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 14
+      },
+      "legend": {
+        "show": true
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT timestamp as time, overlap_vector_bm25::float as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours' ORDER BY timestamp",
+          "refId": "A"
+        },
+        {
+          "format": "time_series",
+          "rawSql": "SELECT timestamp as time, vector_only::float as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours' ORDER BY timestamp",
+          "refId": "B"
+        },
+        {
+          "format": "time_series",
+          "rawSql": "SELECT timestamp as time, bm25_only::float as value FROM retrievalmetric WHERE timestamp > now() - interval '24 hours' ORDER BY timestamp",
+          "refId": "C"
+        }
+      ],
+      "title": "Overlap Analysis",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 14
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT f.rating, r.vector_count, r.bm25_count, r.unique_chunks, r.response_time_ms FROM feedback f JOIN retrievalmetric r ON f.query = r.query ORDER BY f.created_at DESC LIMIT 20",
+          "refId": "A"
+        }
+      ],
+      "title": "Feedback Correlation",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 0,
+        "y": 22
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT COALESCE(AVG(rating)::numeric(3,2), 0) AS value FROM feedback WHERE created_at > now() - interval '24 hours'",
+          "refId": "A"
+        }
+      ],
+      "title": "Avg Rating (Last 7d)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 4,
+        "y": 22
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT COUNT(*)::int AS value FROM feedback WHERE created_at > now() - interval '24 hours'",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Feedback Count (Last 7d)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 8,
+        "y": 22
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT COALESCE((SUM(CASE WHEN rating < 3 THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) * 100)::numeric(4,1), 0) AS value FROM feedback WHERE created_at > now() - interval '24 hours'",
+          "refId": "A"
+        }
+      ],
+      "title": "Low Rating % (<3)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 28
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT rating::text AS metric, COUNT(*)::int AS value FROM feedback WHERE created_at > now() - interval '24 hours' GROUP BY rating ORDER BY rating",
+          "refId": "A"
+        }
+      ],
+      "title": "Rating Distribution",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 28
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT DATE(created_at) AS time, AVG(rating)::numeric(3,2) AS value FROM feedback WHERE created_at > now() - interval '24 hours' GROUP BY DATE(created_at) ORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Rating Trend (Daily Avg, Last 7d)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "PCC52D03280B7034C"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 28
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT id, rating, LEFT(query, 80) AS query, created_at FROM feedback WHERE rating < 3 AND created_at > now() - interval '24 hours' ORDER BY created_at DESC LIMIT 20",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent Low-Rated Queries (<3)",
+      "type": "table"
+    }
+  ],
+  "timezone": "browser",
+  "title": "Retrieval Insights",
+  "uid": "retrieval-insights",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ]
+  },
+  "schemaVersion": 39
+}

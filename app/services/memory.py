@@ -19,7 +19,7 @@ class MemoryService:
 
     async def _get_memory(self) -> AsyncMemory:
         if self._memory is None:
-            self._memory = await AsyncMemory.from_config(
+            self._memory = AsyncMemory.from_config(
                 config_dict={
                     "vector_store": {
                         "provider": "pgvector",

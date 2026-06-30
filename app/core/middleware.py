@@ -27,7 +27,9 @@ from app.core.logging import (
 from app.core.metrics import (
     http_request_duration_seconds,
     http_requests_total,
+    db_connections,
 )
+
 
 if TYPE_CHECKING:
     from pyinstrument import Profiler  # pyright: ignore[reportMissingImports]

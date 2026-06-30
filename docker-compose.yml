@@ -5,6 +5,7 @@ volumes:
   neo4j_data:
   postgres_data:
   prometheus_data:
+  grafana_data:
 
 services:
   neo4j:
@@ -97,7 +98,7 @@ services:
           memory: 1G
 
   prometheus:
-    profiles: [online]
+    profiles: [base, online]
     image: prom/prometheus:latest
     container_name: graphrag-prometheus
     ports:
@@ -118,8 +119,8 @@ services:
           memory: 256M
 
   grafana:
-    profiles: [online]
-    image: grafana/grafana:latest
+    profiles: [base, online]
+    image: grafana/grafana:12.0.0
     container_name: graphrag-grafana
     ports:
       - "3000:3000"
@@ -129,7 +130,7 @@ services:
     volumes:
       - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
       - ./grafana/datasources:/etc/grafana/provisioning/datasources
-      - ./grafana/dashboards/json:/var/lib/grafana/dashboards
+      - grafana_data:/var/lib/grafana
     depends_on:
       - prometheus
     restart: unless-stopped
@@ -141,7 +142,7 @@ services:
           memory: 128M
 
   cadvisor:
-    profiles: [online]
+    profiles: [base, online]
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: graphrag-cadvisor
     ports:

@@ -147,10 +147,10 @@ class KnowledgeBaseIndexer:
             for node in graph.nodes:
                 await session.run(
                     """
-                    MERGE (e:Entity {id: })
-                    SET e.name = ,
-                        e.label = ,
-                        e.description = 
+                    MERGE (e:Entity {id: $id})
+                    SET e.name = $name,
+                        e.label = $label,
+                        e.description = $description
                     """,
                     id=node.id,
                     name=node.properties.get("name", node.id),
@@ -164,8 +164,8 @@ class KnowledgeBaseIndexer:
                 if rel.type == "FROM_CHUNK":
                     await session.run(
                         """
-                        MATCH (c:Chunk {id: })
-                        MATCH (e:Entity {id: })
+                        MATCH (c:Chunk {id: $chunk_id})
+                        MATCH (e:Entity {id: $entity_id})
                         MERGE (e)-[:FROM_CHUNK]->(c)
                         """,
                         chunk_id=rel.start_node_id,
@@ -174,9 +174,9 @@ class KnowledgeBaseIndexer:
                 elif rel.type == "RELATES_TO":
                     await session.run(
                         """
-                        MATCH (s:Entity {id: })
-                        MATCH (t:Entity {id: })
-                        MERGE (s)-[:RELATES_TO {relation: }]->(t)
+                        MATCH (s:Entity {id: $source_id})
+                        MATCH (t:Entity {id: $target_id})
+                        MERGE (s)-[:RELATES_TO {relation: $relation}]->(t)
                         """,
                         source_id=rel.start_node_id,
                         target_id=rel.end_node_id,
@@ -189,13 +189,13 @@ class KnowledgeBaseIndexer:
     ) -> None:
         await session.run(
             """
-            MERGE (c:Chunk {id: })
-            SET c.text = ,
-                c.chunk_index = ,
-                c.document_id = ,
-                c.embedding = 
+            MERGE (c:Chunk {id: $id})
+            SET c.text = $text,
+                c.chunk_index = $chunk_index,
+                c.document_id = $document_id,
+                c.embedding = $embedding
             WITH c
-            MATCH (d:Document {id: })
+            MATCH (d:Document {id: $document_id})
             MERGE (c)-[:PART_OF]->(d)
             """,
             id=chunk_id,
@@ -216,11 +216,11 @@ class KnowledgeBaseIndexer:
         async with driver.session(database="neo4j") as session:
             await session.run(
                 """
-                MERGE (d:Document {id: })
-                SET d.title = ,
-                    d.content_hash = ,
-                    d.split = ,
-                    d.metadata = 
+                MERGE (d:Document {id: $id})
+                SET d.title = $title,
+                    d.content_hash = $content_hash,
+                    d.split = $split,
+                    d.metadata = $metadata
                 """,
                 id=doc_id,
                 title=doc["title"],
