@@ -172,7 +172,7 @@ LOCAL_LLM_MODEL=deepseek-r1:8b
 
 - Python 3.12+
 - Docker and Docker Compose
-- LLM API key
+- LLM API key (DashScope)
 
 ### Setup
 
@@ -183,56 +183,48 @@ cp .env.example .env.development
 # Configure your LLM API key and backend
 ```
 
-### Start
+### Start Online System
 
 ```bash
-# Start Online System
 docker compose --profile online --env-file .env.production up -d
 python run_server.py
-
-# Run Offline Pipeline (Development)
-python -m offline_agent.cli --help
-# Subcommands: eval, analyze, optimize, index, flywheel
 ```
-
-## Usage
 
 ### Index Knowledge Base
 
 Choose one of two approaches:
 
 **Option A — Download pre-built release (recommended)**
-Download the latest release from GitHub Releases — contains a fully built Neo4j graph database with TechQA demo data (1,192 docs, 63,890 chunks, LLM-extracted entities + relationships). To use it:
+Download from GitHub Releases — contains a fully built Neo4j graph database with TechQA demo data.
 
 ```bash
-# 1. Start Neo4j
 docker compose --profile offline up -d neo4j
-
-# 2. Load the Neo4j dump into the container volume
 docker cp backups/neo4j.dump graphrag-neo4j:/data/
 docker exec graphrag-neo4j neo4j-admin database load --from-path=/data/neo4j.dump --overwrite-destination=true
 docker restart graphrag-neo4j
 ```
 
-Pre-built data includes:
-
 | Artifact | Count | Description |
 |----------|-------|-------------|
-| Documents | 1,192 | TechQA train split (IBM tech support articles) |
-| Chunks | 63,890 | 512-char chunks with 64-char overlap |
-| Embeddings | 63,890 | text-embedding-v3, 1024d, cosine distance |
-| Entity Nodes | ~8K+ | LLM-extracted (qwen3.6-flash) from ~50 docs, not full 1,192 |
-| Relationships | ~15K+ | Entity relations from ~50 docs, not full 1,192 |
+| Documents | 1,192 | TechQA train split |
+| Chunks | 63,890 | 512-char chunks, 64-char overlap |
+| Entity Nodes | ~8K+ | Extracted from ~50 docs (deepseek-r1:8b local / qwen3.6-flash cloud) |
+| Relationships | ~15K+ | Entity relations from ~50 docs |
 
 **Option B — Build from scratch**
-Run the Index Agent to download TechQA from HuggingFace, chunk, embed, and extract entities:
 
 ```bash
-python scripts/run_index_agent.py --help
 python scripts/run_index_agent.py --split train --max-docs 1192
 ```
 
-> **Note**: With `ENABLE_LOCAL=true`, entity extraction uses local deepseek-r1:8b (no API key needed). Cloud mode requires DashScope API access. Building the full 1,192-doc index takes ~30 minutes (cloud) or ~2-3 hours (local, depending on GPU).
+> **Note**: With ENABLE_LOCAL=true, entity extraction uses local deepseek-r1:8b (no API key needed). Building full index takes ~30 min (cloud) or ~2-3 hr (local).
+
+### Run Offline Pipeline
+
+```bash
+python -m offline_agent.cli --help
+# Subcommands: eval, analyze, optimize, index, flywheel
+```
 
 ## Production Deployment
 
