@@ -1,5 +1,5 @@
 # NexusGraph Production Docker Compose
-# Usage: docker compose --profile online --env-file .env.production up -d
+# Usage: docker compose --profile online up -d
 
 volumes:
   neo4j_data:
@@ -67,7 +67,7 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - .env.${APP_ENV:-development}
+      - .env${APP_ENV:-development}
     environment:
       APP_ENV: ${APP_ENV:-development}
       NEO4J_URI: neo4j://neo4j:7687
