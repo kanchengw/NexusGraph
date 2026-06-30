@@ -1,4 +1,4 @@
-﻿"""Application configuration management.
+"""Application configuration management.
 
 This module handles environment-specific configuration loading, parsing, and management
 for the application. It includes environment detection, .env file loading, and
@@ -241,6 +241,8 @@ class Settings:
         self.LOCAL_EMBEDDING_MODEL = os.getenv("LOCAL_EMBEDDING_MODEL", "mxbai-embed-large")
         self.LOCAL_EMBEDDING_DIM = int(os.getenv("LOCAL_EMBEDDING_DIM", "1024"))
         self.LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "deepseek-r1:8b")
+
+        
 
         # Apply environment-specific settings
         self.apply_environment_settings()

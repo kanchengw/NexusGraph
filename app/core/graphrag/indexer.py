@@ -15,6 +15,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from neo4j_graphrag.experimental.components.entity_relation_extractor import (
     LLMEntityRelationExtractor,
 )
+from neo4j_graphrag.experimental.components.lexical_graph import LexicalGraphConfig
 from neo4j_graphrag.experimental.components.types import (
     Neo4jGraph,
     Neo4jNode,
@@ -138,6 +139,7 @@ class KnowledgeBaseIndexer:
             result = await self._entity_extractor.run(
                 chunks=text_chunks,
                 schema=ENTITY_SCHEMA,
+                lexical_graph_config=LexicalGraphConfig(),
             )
             return result
         except Exception as e:
@@ -154,8 +156,10 @@ class KnowledgeBaseIndexer:
         """Write extracted entity graph to Neo4j."""
         driver = await self._ensure_driver()
         async with driver.session(database="neo4j") as session:
-            # Write Entity nodes
+            # Write Entity nodes (skip lexical graph nodes like Chunk/Document)
             for node in graph.nodes:
+                if node.label != "Entity":
+                    continue
                 await session.run(
                     """
                     MERGE (e:Entity {id: $id})
@@ -170,17 +174,17 @@ class KnowledgeBaseIndexer:
                 )
 
             # Write FROM_CHUNK relationships (Entity->Chunk) from lexical graph
-            # (extractor may create lexical graph chunks too)
             for rel in graph.relationships:
                 if rel.type == "FROM_CHUNK":
+                    # Lexical graph: Entity->Chunk, so end_node is chunk_id
                     await session.run(
                         """
                         MATCH (c:Chunk {id: $chunk_id})
                         MATCH (e:Entity {id: $entity_id})
                         MERGE (e)-[:FROM_CHUNK]->(c)
                         """,
-                        chunk_id=rel.start_node_id,
-                        entity_id=rel.end_node_id,
+                        chunk_id=rel.end_node_id,
+                        entity_id=rel.start_node_id,
                     )
                 elif rel.type == "RELATES_TO":
                     await session.run(
@@ -286,13 +290,14 @@ class KnowledgeBaseIndexer:
 
     async def index_all(
         self, split: str = "train", extract_entities: bool = True,
-        max_entity_docs: int = 100
+        max_docs: int = 0
     ) -> None:
         """Index all documents from dataset."""
         records = await self.load_ragbench_techqa(split)
+        if max_docs > 0:
+            records = records[:max_docs]
         for i, doc in enumerate(records):
-            # Only extract entities for the first N documents (performance)
-            do_entities = extract_entities and i < max_entity_docs
+            do_entities = extract_entities
             await self.index_document(doc, extract_entities=do_entities)
             if (i + 1) % 100 == 0:
                 logger.info(
@@ -309,11 +314,13 @@ class KnowledgeBaseIndexer:
 
 
 async def run_indexing(
-    split: str = "train", reset: bool = False, skip_entities: bool = False
+    split: str = "train", reset: bool = False, skip_entities: bool = False,
+    max_docs: int = 0
 ) -> None:
     """Run the full indexing pipeline."""
     if reset:
         logger.info("resetting_neo4j_schema")
         await init_neo4j_schema()
     indexer = KnowledgeBaseIndexer()
-    await indexer.index_all(split, extract_entities=not skip_entities)
+    await indexer.index_all(split, extract_entities=not skip_entities, max_docs=max_docs)
+
