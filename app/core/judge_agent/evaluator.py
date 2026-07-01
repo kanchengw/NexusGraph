@@ -34,101 +34,56 @@ JUDGE_LLM = ChatOpenAI(
     max_tokens=1024,
 )
 
-async def evaluate_faithfulness(question: str, answer: str, context: str) -> float:
-    """Evaluate answer faithfulness against context (0-1)."""
-    prompt = f"""You are an evaluation judge. Rate the faithfulness of the answer based on the context.
-
-Context: {context}
-Question: {question}
-Answer: {answer}
-
-Score the answer from 0 to 1 based on whether all claims in the answer are supported by the context.
-Return ONLY a number between 0 and 1 (e.g., 0.85).
-
-Faithfulness score:"""
-    response = await JUDGE_LLM.ainvoke(prompt)
-    try:
-        return float(response.content.strip())
-    except (ValueError, TypeError):
-        return 0.0
-
-async def evaluate_relevance(question: str, answer: str) -> float:
-    """Evaluate answer relevance to the question (0-1)."""
-    prompt = f"""You are an evaluation judge. Rate the relevance of the answer to the question.
+async def evaluate_all_metrics(question: str, answer: str, context: str, ground_truth: str, context_chunks: list[str], ground_truth_docs: list[str]) -> dict[str, float]:
+    """Evaluate all 5 metrics in a single LLM judge call."""
+    context_str = context[:3000]
+    chunk_text = "\n---\n".join(context_chunks[:5])[:2000] if context_chunks else "(no chunks)"
+    gt_str = "\n".join([str(d) for d in ground_truth_docs[:3]])[:1500] if ground_truth_docs else "(no docs)"
+    prompt = f"""You are an evaluation judge for a RAG system. Given the following, score ALL 5 metrics from 0.0 to 1.0.
 
 Question: {question}
 Answer: {answer}
+Context (retrieved):
+{context_str}
+Retrieved Chunks:
+{chunk_text}
+Ground Truth Answer: {ground_truth}
+Ground Truth Documents:
+{gt_str}
 
-Score from 0 to 1 based on how directly the answer addresses the question.
-Return ONLY a number between 0 and 1.
+Score each metric:
+1. faithfulness - Are all claims in the answer supported by the context?
+2. relevance - How directly does the answer address the question?
+3. context_precision - What proportion of retrieved chunks are relevant to the question?
+4. answer_correctness - How accurate and complete is the answer vs ground truth?
+5. context_recall - Does the retrieved context cover ALL key info from ground truth documents?
 
-Relevance score:"""
+Return ONLY valid JSON with 5 keys. Example:
+{{
+  "faithfulness": 0.85,
+  "relevance": 0.90,
+  "context_precision": 0.75,
+  "answer_correctness": 0.80,
+  "context_recall": 0.70
+}}
+"""
     response = await JUDGE_LLM.ainvoke(prompt)
     try:
-        return float(response.content.strip())
-    except (ValueError, TypeError):
-        return 0.0
+        import json, re
+        text = response.content.strip()
+        m = re.search(r"`(?:json)?\s*([\s\S]*?)\s*`", text)
+        if m:
+            text = m.group(1)
+        scores = json.loads(text)
+        return {k: max(0.0, min(1.0, float(scores.get(k, 0.0)))) for k in ["faithfulness", "relevance", "context_precision", "answer_correctness", "context_recall"]}
+    except Exception as e:
+        logger.warning("eval_batch_parse_error", error=str(e), raw=response.content[:200])
+        return {"faithfulness": 0.0, "relevance": 0.0, "context_precision": 0.0, "answer_correctness": 0.0, "context_recall": 0.0}
 
-async def evaluate_context_precision(relevant_chunks: list[str], question: str) -> float:
-    """Evaluate what proportion of retrieved context is actually relevant."""
-    if not relevant_chunks:
-        return 0.0
-    relevant_count = 0
-    for chunk in relevant_chunks[:5]:
-        prompt = f"""Is the following context relevant to the question "{question}"?
-Answer ONLY "yes" or "no".
-
-Context: {chunk[:500]}"""
-        response = await JUDGE_LLM.ainvoke(prompt)
-        if response.content.strip().lower().startswith("yes"):
-            relevant_count += 1
-    return relevant_count / min(len(relevant_chunks), 5)
-
-async def evaluate_answer_correctness(question: str, answer: str, ground_truth: str) -> float:
-    """Evaluate answer correctness against ground truth (0-1)."""
-    prompt = f"""You are an evaluation judge. Rate the correctness of the answer compared to the ground truth.
-
-Question: {question}
-Ground Truth: {ground_truth}
-Answer: {answer}
-
-Score from 0 to 1 based on how accurate and complete the answer is compared to the ground truth.
-A correct answer covers the key information from the ground truth without hallucination.
-Return ONLY a number between 0 and 1.
-
-Correctness score:"""
-    response = await JUDGE_LLM.ainvoke(prompt)
-    try:
-        score = float(response.content.strip())
-        return max(0.0, min(1.0, score))
-    except ValueError:
-        logger.warning("eval_score_parse_error", metric="answer_correctness", raw=response.content)
-        return 0.0
-
-async def evaluate_context_recall(retrieved_chunks: list[str], ground_truth_docs: list[str]) -> float:
-    """Evaluate whether the retrieved context contains all info needed to answer (0-1)."""
-    if not ground_truth_docs or not retrieved_chunks:
-        return 0.0
-    context_str = "\n".join(retrieved_chunks[:5])[:2000]
-    ground_truth_str = "\n".join([str(d) for d in ground_truth_docs[:3]])[:1500]
-    prompt = f"""You are an evaluation judge. Rate the context recall.
-
-Ground Truth Information: {ground_truth_str}
-Retrieved Context: {context_str}
-
-Score from 0 to 1 based on whether ALL key information from the ground truth is covered by the retrieved context.
-Return ONLY a number between 0 and 1.
-
-Context recall score:"""
-    response = await JUDGE_LLM.ainvoke(prompt)
-    try:
-        return max(0.0, min(1.0, float(response.content.strip())))
-    except (ValueError, TypeError):
-        return 0.0
 
 async def run_evaluation(
     split: str = "test",
-    num_samples: int = 50,
+    num_samples: int = 100,
     output_path: str = "evals/results/graphrag_eval.json",
 ) -> dict[str, Any]:
     """Run evaluation on RAGBench techqa dataset."""
@@ -140,7 +95,7 @@ async def run_evaluation(
 
     try:
         for i, row in enumerate(dataset):
-            if i >= num_samples:
+            if num_samples > 0 and i >= num_samples:
                 break
 
             question = row["question"]
@@ -163,11 +118,12 @@ Provide a concise, accurate answer:"""
 
             # Evaluate
             t0 = time.time()
-            faithfulness = await evaluate_faithfulness(question, answer, context_str)
-            relevance = await evaluate_relevance(question, answer)
-            context_precision = await evaluate_context_precision(context_chunks, question)
-            answer_correctness = await evaluate_answer_correctness(question, answer, ground_truth)
-            context_recall = await evaluate_context_recall(context_chunks, row.get("documents", []))
+            scores = await evaluate_all_metrics(question, answer, context_str, ground_truth, context_chunks, row.get("documents", []))
+            faithfulness = scores["faithfulness"]
+            relevance = scores["relevance"]
+            context_precision = scores["context_precision"]
+            answer_correctness = scores["answer_correctness"]
+            context_recall = scores["context_recall"]
             elapsed_ms = int((time.time() - t0) * 1000)
 
             results.append({

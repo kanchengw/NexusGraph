@@ -1,4 +1,4 @@
-"""Data-driven RAG optimization with LLM analysis.
+﻿"""Data-driven RAG optimization with LLM analysis.
 Reads analysis report from analyze_retrieval.py, sends to LLM for
 optimization suggestions, produces human-readable suggestion report.
 Human-in-the-loop: report must be approved before applying changes.
@@ -37,43 +37,42 @@ ANALYSIS_PROMPT = """You are a RAG system optimization analyst. Your job is to a
 {report_json}
 
 ## Data Sources
-The report includes data from three independent sources:
+The report includes data from four independent sources:
 SYSTEM (Prometheus): request latency, QPS, DB connections - infrastructure health
 RETRIEVAL (PostgreSQL): path contribution, overlap, feedback correlation
 EVAL (Langfuse + RAGBench): faithfulness, correctness, recall, token usage - quality metrics
+PIPELINE_HISTORY (PostgreSQL): previous optimization cycles with their parameter changes, eval metrics, and outcomes (passed/rolled_back)
+
+## Optimization Memory
+The pipeline_history section shows what parameter changes were attempted in previous flywheel cycles
+and what the results were. IMPORTANT rules:
+1. If a parameter change was previously tried and resulted in ROLLED_BACK (degraded), do NOT suggest the same change again.
+2. If a parameter value was previously used and had better metrics than the current value, consider reverting to it.
+3. Look at the trend across multiple eval results, not just the latest one.
+4. NEVER suggest ping-pong changes (cycling between the same two values for the same parameter).
 1. PATH CONTRIBUTION: How each retrieval path (vector, BM25, graph) performs independently
 2. EVAL HISTORY: Quality metrics (faithfulness, relevance, precision, recall, hit_rate) from last 5 evaluation runs
 3. PROMETHEUS METRICS: System-level performance (request latency, QPS, LLM inference time)
 
-## Attribution Rules
-1. CORRELATE: Look for patterns between Prometheus metrics and eval scores. E.g. high LLM latency may suggest chunk size too large; low hit_rate means retrieval needs adjustment.
-2. TREND ANALYSIS: Compare eval history over 5 runs. Is faithfulness improving? Is response_time increasing?
-3. ROOT CAUSE: Do not suggest parameter changes based on quality scores alone. Use Prometheus metrics to confirm the hypothesis (e.g. high latency confirms chunk_size too large).
-4. TRADEOFF: Every parameter change affects both quality AND performance. Always mention the expected impact on both dimensions.
-
 ## Analysis Guidelines
 
-## Analysis Guidelines
-
-1. For each metric path (vector, BM25, graph), evaluate:
+1. Use pipeline_history to understand what was tried before. Do NOT suggest changes that were already rolled back.
+2. For each metric path (vector, BM25, graph), evaluate:
    - Independent contribution rate: how often does this path find unique chunks?
    - Overlap rate: how much does this path overlap with others?
    - Response time impact
-
-2. For each suggestion, provide:
+3. For each suggestion, provide:
    - What to change
    - Why (cite specific data points)
    - Expected impact on faithfulness/relevance/response time
    - Risk level (low/medium/high)
-
-3. Consider these parameters for tuning:
+4. Consider these parameters for tuning:
    - GRAPHRAG_TOP_K (currently {current_top_k})
    - GRAPHRAG_CHUNK_SIZE (currently {current_chunk_size})
    - GRAPHRAG_CHUNK_OVERLAP (currently {current_overlap})
    - BM25 query format or index rebuild
    - Graph expand max_hops (currently 2)
-
-4. Use feedback correlation data if available:
+5. Use feedback correlation data if available:
    - What retrieval patterns are associated with low ratings?
    - What patterns are associated with high ratings?
 

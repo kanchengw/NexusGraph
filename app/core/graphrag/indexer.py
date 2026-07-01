@@ -1,4 +1,4 @@
-"""GraphRAG indexing pipeline.
+﻿"""GraphRAG indexing pipeline.
 
 Loads RAGBench/techqa, chunks documents, generates embeddings,
 extracts entities/relations via neo4j-graphrag LLMEntityRelationExtractor,
@@ -8,7 +8,7 @@ and writes to Neo4j.
 from __future__ import annotations
 
 import hashlib
-from typing import Any
+from typing import Any, Callable
 
 from datasets import load_dataset
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -290,7 +290,7 @@ class KnowledgeBaseIndexer:
 
     async def index_all(
         self, split: str = "train", extract_entities: bool = True,
-        max_docs: int = 0
+        max_docs: int = 0, progress_callback: Callable | None = None
     ) -> None:
         """Index all documents from dataset."""
         records = await self.load_ragbench_techqa(split)
@@ -299,6 +299,8 @@ class KnowledgeBaseIndexer:
         for i, doc in enumerate(records):
             do_entities = extract_entities
             await self.index_document(doc, extract_entities=do_entities)
+            if progress_callback:
+                await progress_callback(i + 1, len(records))
             if (i + 1) % 100 == 0:
                 logger.info(
                     "indexing_progress",
@@ -315,12 +317,13 @@ class KnowledgeBaseIndexer:
 
 async def run_indexing(
     split: str = "train", reset: bool = False, skip_entities: bool = False,
-    max_docs: int = 0
+    max_docs: int = 0, progress_callback: Callable | None = None
 ) -> None:
     """Run the full indexing pipeline."""
     if reset:
         logger.info("resetting_neo4j_schema")
         await init_neo4j_schema()
     indexer = KnowledgeBaseIndexer()
-    await indexer.index_all(split, extract_entities=not skip_entities, max_docs=max_docs)
+    await indexer.index_all(split, extract_entities=not skip_entities, max_docs=max_docs, progress_callback=progress_callback)
+
 

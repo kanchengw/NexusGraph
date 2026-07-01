@@ -1,4 +1,4 @@
-"""Analyze retrieval metrics from PostgreSQL for data-driven optimization.
+﻿"""Analyze retrieval metrics from PostgreSQL for data-driven optimization.
 
 Reads retrieval_metric, evalresult, and feedback tables to produce:
 1. path_contribution_report - which path contributes independently
@@ -13,9 +13,11 @@ import os
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlmodel import Session, create_engine, text
+from sqlmodel import Session, create_engine, text, desc
 
 from app.core.config import settings as _as
+from app.models.pipeline_session import PipelineSession
+from app.core.logging import logger
 _DB_URL = f"postgresql://{_as.POSTGRES_USER}:{_as.POSTGRES_PASSWORD}@{_as.POSTGRES_HOST}:{_as.POSTGRES_PORT}/{_as.POSTGRES_DB}"
 _engine = create_engine(_DB_URL, pool_pre_ping=True)
 
@@ -357,6 +359,41 @@ def load_eval_history(n: int = 5) -> list[dict]:
     return history
 
 
+
+def load_pipeline_history(limit: int = 20) -> list[dict]:
+    """Load PipelineSession records for optimization memory.
+    
+    Returns recent sessions with eval metrics and parameter changes,
+    so the LLM can see what params were tried before and the results.
+    """
+    from sqlmodel import Session, select, desc
+    from app.models.database import get_engine
+    try:
+        engine = get_engine()
+        with Session(engine) as session:
+            stmt = (select(PipelineSession)
+                    .where(PipelineSession.status.in_(["eval_done", "optimizing", "applying", "passed", "rolled_back", "done"]))
+                    .order_by(desc(PipelineSession.created_at))
+                    .limit(limit))
+            results = session.exec(stmt).all()
+            history = []
+            for s in results:
+                entry = {
+                    "run_id": s.run_id,
+                    "status": s.status,
+                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                    "eval_metrics": json.loads(s.eval_metrics_summary) if s.eval_metrics_summary else None,
+                    "apply_changes": json.loads(s.apply_changes) if s.apply_changes else None,
+                    "verify_verdict": s.verify_verdict,
+                    "rollback_reason": s.rollback_reason,
+                }
+                history.append(entry)
+            return history
+    except Exception as e:
+        logger.warning("pipeline_history_load_failed", error=str(e))
+        return []
+
+
 async def generate_all_reports(days: int = 7) -> dict[str, Any]:
     os.makedirs(REPORT_DIR, exist_ok=True)
     result = {
@@ -367,6 +404,7 @@ async def generate_all_reports(days: int = 7) -> dict[str, Any]:
         "eval_history": load_eval_history(5),
         "prometheus_metrics": await load_prometheus_metrics(),
         "langfuse_llm_metrics": await load_langfuse_llm_metrics(),
+        "pipeline_history": load_pipeline_history(20),
     }
 
     path = os.path.join(REPORT_DIR, "analysis_report.json")

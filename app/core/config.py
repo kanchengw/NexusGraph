@@ -1,4 +1,4 @@
-"""Application configuration management.
+﻿"""Application configuration management.
 
 This module handles environment-specific configuration loading, parsing, and management
 for the application. It includes environment detection, .env file loading, and

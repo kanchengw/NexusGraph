@@ -1,0 +1,441 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NexusGraph — Offline Admin</title>
+<style>
+  :root {
+    --bg: #f5f5f5;
+    --card: #ffffff;
+    --text: #1a1a1a;
+    --text-secondary: #666;
+    --primary: #1976d2;
+    --primary-hover: #1565c0;
+    --success: #2e7d32;
+    --warning: #ed6c02;
+    --danger: #d32f2f;
+    --border: #e0e0e0;
+    --radius: 8px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); display: flex; height: 100vh; }
+  .sidebar { width: 220px; background: #1a1a2e; color: #eee; padding: 16px 0; display: flex; flex-direction: column; flex-shrink: 0; }
+  .sidebar h2 { font-size: 16px; padding: 0 16px 12px; border-bottom: 1px solid #333; margin-bottom: 8px; }
+  .sidebar .item { padding: 10px 16px; cursor: pointer; font-size: 14px; transition: background 0.2s; }
+  .sidebar .item:hover { background: #16213e; }
+  .sidebar .item.active { background: #0f3460; border-left: 3px solid var(--primary); }
+  .main { flex: 1; padding: 24px; overflow-y: auto; }
+  .card { background: var(--card); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .card h3 { font-size: 16px; margin-bottom: 12px; color: var(--text); }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; transition: opacity 0.2s; }
+  .btn:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--primary); color: white; }
+  .btn-success { background: var(--success); color: white; }
+  .btn-warning { background: var(--warning); color: white; }
+  .btn-danger { background: var(--danger); color: white; }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  th { font-weight: 600; color: var(--text-secondary); font-size: 12px; text-transform: uppercase; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge-success { background: #c8e6c9; color: #2e7d32; }
+  .badge-warning { background: #fff3e0; color: #e65100; }
+  .badge-danger { background: #ffcdd2; color: #c62828; }
+  .badge-info { background: #bbdefb; color: #1565c0; }
+  .badge-neutral { background: #e0e0e0; color: #616161; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .mt-12 { margin-top: 12px; }
+  .flex { display: flex; gap: 8px; align-items: center; }
+  .flex-wrap { flex-wrap: wrap; }
+  .loading { text-align: center; padding: 40px; color: var(--text-secondary); }
+  .error { color: var(--danger); padding: 12px; background: #ffebee; border-radius: var(--radius); }
+  pre { background: #f8f8f8; padding: 12px; border-radius: var(--radius); font-size: 13px; overflow-x: auto; max-height: 400px; }
+  .hidden { display: none !important; }
+  .timeline-node { display: flex; align-items: flex-start; gap: 12px; padding: 8px 0; position: relative; }
+  .timeline-node::before { content: ""; position: absolute; left: 15px; top: 32px; bottom: -8px; width: 2px; background: var(--border); }
+  .timeline-node:last-child::before { display: none; }
+  .timeline-icon { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+  .timeline-body { flex: 1; }
+
+  /* Event Panel */
+  .event-panel { max-height: 400px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; background: #fafafa; }
+  .event-item { padding: 6px 8px; border-bottom: 1px solid #f0f0f0; font-size: 13px; display: flex; gap: 8px; align-items: flex-start; }
+  .event-item:last-child { border-bottom: none; }
+  .event-time { color: var(--text-secondary); font-size: 11px; white-space: nowrap; flex-shrink: 0; }
+  .event-icon { flex-shrink: 0; font-size: 14px; }
+  .event-step { font-weight: 600; }
+  .event-idle { color: var(--text-secondary); }
+
+  /* Progress Bar */
+  .progress-bar { width: 100%; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; margin: 8px 0; }
+  .progress-fill { height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.5s ease; }
+  .progress-text { font-size: 12px; color: var(--text-secondary); }
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <h2>📊 Offline Admin</h2>
+  <div class="item active" data-page="dashboard">Dashboard</div>
+  <div class="item" data-page="sessions">Sessions</div>
+  <div class="item" data-page="eval">Eval Results</div>
+  <div class="item" data-page="optimize">HIL A — Optimize</div>
+  <div class="item" data-page="verify">HIL B — Verify</div>
+  <div class="item" data-page="rollback">Rollback</div>
+</div>
+<div class="main" id="content">
+  <div class="loading">Loading...</div>
+</div>
+
+<script>
+const API = "/api/admin";
+let currentPage = "dashboard";
+let eventSource = null;
+let sseEvents = [];
+let flywheelRunning = false;
+
+// ── Navigation ──
+document.querySelectorAll(".sidebar .item").forEach(el => {
+  el.addEventListener("click", () => {
+    document.querySelectorAll(".sidebar .item").forEach(e => e.classList.remove("active"));
+    el.classList.add("active");
+    currentPage = el.dataset.page;
+    renderPage(currentPage);
+  });
+});
+
+// ── API helper ──
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, { headers: { "Content-Type": "application/json" }, ...opts });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+// ── SSE ──
+function connectSSE() {
+  if (eventSource) return;
+  eventSource = new EventSource(API + "/events");
+  eventSource.onmessage = (e) => {
+    try {
+      const evt = JSON.parse(e.data);
+      const ts = new Date(evt._ts || Date.now());
+      sseEvents.push({
+        time: ts.toLocaleTimeString(),
+        icon: iconForStep(evt.type, evt.data?.step),
+        text: evt.data?.message || evt.type,
+        step: evt.data?.step,
+        progress: evt.data?.progress,
+        total: evt.data?.total,
+      });
+      if (evt.data?.step === "done" || evt.data?.step === "failed") flywheelRunning = false;
+      if (evt.type === "step" && evt.data?.step === "indexing") flywheelRunning = true;
+      if (currentPage === "dashboard") renderPage("dashboard");
+    } catch(e) {}
+  };
+  eventSource.onerror = () => {
+    eventSource.close();
+    eventSource = null;
+    setTimeout(connectSSE, 3000);
+  };
+}
+
+function iconForStep(type, step) {
+  if (type === "progress") return "📦";
+  const map = {
+    eval: "🔬", eval_done: "✅",
+    optimizing: "🧠", waiting_hil_a: "⏸",
+    backing_up: "💾", backup_done: "✅",
+    indexing: "🏗", index_done: "✅",
+    verifying: "🔍", verify_done: "✅",
+    waiting_hil_b: "⏸",
+    cleaning_up: "🧹",
+    rolling_back: "↺", rollback_done: "✅",
+    done: "🎉", failed: "❌",
+  };
+  return map[step] || "📌";
+}
+
+// ── Router ──
+async function renderPage(page) {
+  const el = document.getElementById("content");
+  el.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    el.innerHTML = await route[page]();
+  } catch (e) {
+    el.innerHTML = `<div class="error">${e.message}</div>`;
+  }
+}
+
+const route = {
+  async dashboard() { return renderDashboard(); },
+  async sessions() { return renderSessions(); },
+  async eval() { return renderEval(); },
+  async optimize() { return renderOptimize(); },
+  async verify() { return renderVerify(); },
+  async rollback() { return renderRollback(); },
+};
+
+// ── Dashboard ──
+function renderDashboardContent(status) {
+  const lastEvents = sseEvents.slice(-20).reverse();
+  const latestStep = sseEvents.length > 0 ? sseEvents[sseEvents.length - 1] : null;
+  const indexingProgress = latestStep && latestStep.step === "indexing" && latestStep.progress != null;
+
+  return `
+    <h2 style="margin-bottom:16px">Dashboard</h2>
+
+    <div class="card">
+      <h3>📡 Flywheel Status</h3>
+      <p style="margin:8px 0">
+        <span class="badge ${
+          status.status === "idle" ? "badge-neutral" :
+          status.status === "running" ? "badge-info" :
+          status.status.includes("hil") ? "badge-warning" :
+          status.status === "approved_pending_apply" ? "badge-info" : "badge-info"
+        }">${status.status}</span>
+      </p>
+      ${indexingProgress ? `
+        <div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${latestStep.progress}%"></div></div>
+          <div class="progress-text">${latestStep.text} (${latestStep.progress}%)</div>
+        </div>
+      ` : latestStep ? `<p style="font-size:13px;color:var(--text-secondary)">${latestStep.icon} ${latestStep.text}</p>` : ""}
+      <div class="flex mt-12 flex-wrap">
+        <button class="btn btn-primary" onclick="triggerFlywheel()" ${status.status === "running" || flywheelRunning ? "disabled" : ""}>
+          ${flywheelRunning ? "⏳ Running..." : "▶ Trigger Flywheel"}
+        </button>
+        <button class="btn btn-sm" style="background:var(--border)" onclick="sseEvents=[];renderPage('dashboard')">Clear Events</button>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>Pending Tasks</h3>
+        <p>HIL A: ${status.suggestion_pending && !flywheelRunning ? "⚠ Waiting" : "✓ None"}</p>
+        <p>HIL B: ${status.verification_pending && !flywheelRunning ? "⚠ Waiting" : "✓ None"}</p>
+      </div>
+      <div class="card">
+        <h3>Quick Links</h3>
+        <div class="flex flex-wrap">
+          <button class="btn btn-primary btn-sm" onclick="navigate('sessions')">Sessions</button>
+          <button class="btn btn-primary btn-sm" onclick="navigate('eval')">Eval Results</button>
+          ${status.suggestion_pending && !flywheelRunning ? `<button class="btn btn-warning btn-sm" onclick="navigate('optimize')">HIL A</button>` : ""}
+          ${status.verification_pending && !flywheelRunning ? `<button class="btn btn-warning btn-sm" onclick="navigate('verify')">HIL B</button>` : ""}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>🔄 Event Timeline ${flywheelRunning ? '<span class="badge badge-info">LIVE</span>' : ""}</h3>
+      <div class="event-panel" id="event-panel">
+        ${lastEvents.length === 0 ? '<div class="event-item event-idle">No events yet. Trigger the flywheel to see progress.</div>' :
+          lastEvents.map(e => `<div class="event-item">
+            <span class="event-time">${e.time}</span>
+            <span class="event-icon">${e.icon}</span>
+            <span class="${e.step ? 'event-step' : ''}">${e.text}</span>
+            ${e.progress != null ? `<span class="progress-text">${e.progress}/${e.total}</span>` : ""}
+          </div>`).join("")}
+      </div>
+    </div>
+  `;
+}
+
+async function renderDashboard() {
+  const status = await api("/flywheel/status");
+  return renderDashboardContent(status);
+}
+
+async function triggerFlywheel() {
+  flywheelRunning = true;
+  await api("/flywheel/trigger", { method: "POST", body: "{}" });
+  renderPage("dashboard");
+}
+
+// ── Sessions ──
+async function renderSessions() {
+  const data = await api("/sessions?limit=20");
+  if (!data.sessions?.length) return `<h2 style="margin-bottom:16px">Sessions</h2><div class="card"><p>No sessions yet.</p></div>`;
+  return `
+    <h2 style="margin-bottom:16px">Sessions</h2>
+    <div class="card">
+      <table>
+        <tr><th>Run ID</th><th>Status</th><th>Created</th><th></th></tr>
+        ${data.sessions.map(s => `<tr>
+          <td>${s.run_id}</td>
+          <td><span class="badge ${s.status === 'done' || s.status === 'passed' ? 'badge-success' : s.status.includes('fail') || s.status === 'rolled_back' ? 'badge-danger' : 'badge-warning'}">${s.status}</span></td>
+          <td>${new Date(s.created_at).toLocaleString()}</td>
+          <td><button class="btn btn-primary btn-sm" onclick="viewSession(${s.id})">View</button></td>
+        </tr>`).join("")}
+      </table>
+    </div>
+  `;
+}
+
+async function viewSession(id) {
+  const s = await api(`/sessions/${id}`);
+  const card = (label, val) => val ? `<div class="card"><h3>${label}</h3><pre>${JSON.stringify(JSON.parse(val), null, 2)}</pre></div>` : "";
+  document.getElementById("content").innerHTML = `
+    <div class="flex" style="margin-bottom:16px">
+      <button class="btn btn-sm" onclick="renderPage('sessions')" style="background:var(--border)">← Back</button>
+      <h2 style="margin:0">${s.run_id}</h2>
+    </div>
+    <div class="card">
+      <p><strong>Status:</strong> <span class="badge badge-info">${s.status}</span></p>
+      <p><strong>Created:</strong> ${new Date(s.created_at).toLocaleString()}</p>
+    </div>
+    ${card("Eval Report", s.eval_full_result)}
+    ${card("Optimization Suggestion (Raw)", s.opt_suggestion_raw)}
+    ${card("Optimization Suggestion (Final)", s.opt_suggestion_final)}
+    ${card("Applied Changes", s.apply_changes)}
+    ${card("Verification Report", s.verify_result)}
+    ${card("Rollback Report", s.rollback_report)}
+  `;
+}
+
+// ── Eval Results ──
+async function renderEval() {
+  const data = await api("/eval-results?limit=20");
+  if (!data.results?.length) return `<h2 style="margin-bottom:16px">Eval Results</h2><div class="card"><p>No eval results yet.</p></div>`;
+  return `
+    <h2 style="margin-bottom:16px">Eval Results</h2>
+    <div class="card">
+      <table>
+        <tr><th>Run ID</th><th>Faith</th><th>Relv</th><th>Prec</th><th>Correct</th><th>Recall</th><th>Samples</th><th>Date</th></tr>
+        ${data.results.map(r => `<tr>
+          <td>${r.run_id || "—"}</td>
+          <td>${r.faithfulness?.toFixed(3)}</td>
+          <td>${r.relevance?.toFixed(3)}</td>
+          <td>${r.context_precision?.toFixed(3)}</td>
+          <td>${r.answer_correctness?.toFixed(3)}</td>
+          <td>${r.context_recall?.toFixed(3)}</td>
+          <td>${r.num_samples}</td>
+          <td>${new Date(r.created_at).toLocaleDateString()}</td>
+        </tr>`).join("")}
+      </table>
+    </div>
+  `;
+}
+
+// ── HIL A: Optimize ──
+async function renderOptimize() {
+  const data = await api("/optimizations");
+  const sug = data.optimizations?.[0];
+  if (!sug) return `<h2 style="margin-bottom:16px">HIL A — Optimize</h2><div class="card"><p>No pending optimization suggestion.</p></div>`;
+  if (sug.approved) return `<h2 style="margin-bottom:16px">HIL A — Optimize</h2><div class="card"><p>✔ Already approved.</p><button class="btn btn-sm" onclick="renderPage('dashboard')" style="background:var(--border)">← Back</button></div>`;
+  return `
+    <h2 style="margin-bottom:16px">HIL A — Review Optimization</h2>
+    <div class="card">
+      <h3>LLM Suggestions</h3>
+      <pre>${JSON.stringify(sug.suggestions || sug, null, 2)}</pre>
+    </div>
+    <div class="card">
+      <h3>Your Decision</h3>
+      <div class="flex flex-wrap">
+        <button class="btn btn-success" onclick="approveOpt()">✓ Approve</button>
+        <button class="btn btn-danger" onclick="rejectOpt()">✗ Reject</button>
+        <button class="btn btn-warning" onclick="showModifyOpt()">✏ Modify & Approve</button>
+      </div>
+      <div id="modify-area" class="hidden mt-12">
+        <textarea id="modify-notes" style="width:100%;height:80px;padding:8px;border:1px solid var(--border);border-radius:var(--radius)" placeholder="Describe your modifications..."></textarea>
+        <button class="btn btn-success mt-12" onclick="submitModify()">Submit Modified</button>
+      </div>
+    </div>
+  `;
+}
+
+async function approveOpt() {
+  await api("/optimizations/approve", { method: "POST" });
+  renderPage("optimize");
+}
+
+async function rejectOpt() {
+  await api("/optimizations/reject", { method: "POST" });
+  renderPage("optimize");
+}
+
+function showModifyOpt() {
+  document.getElementById("modify-area").classList.remove("hidden");
+}
+
+async function submitModify() {
+  const notes = document.getElementById("modify-notes").value;
+  await api("/optimizations/modify", { method: "POST", body: JSON.stringify({ notes }) });
+  renderPage("optimize");
+}
+
+// ── HIL B: Verify ──
+async function renderVerify() {
+  let report;
+  try { report = await api("/verify/result"); } catch (e) { report = null; }
+  if (!report) return `
+    <h2 style="margin-bottom:16px">HIL B — Verify</h2>
+    <div class="card"><p>No verification report found.</p>
+    <button class="btn btn-primary mt-12" onclick="runVerify()">▶ Run Verification</button></div>
+  `;
+  if (report.human_verdict) return `<h2 style="margin-bottom:16px">HIL B — Verify</h2><div class="card"><p>✔ Verdict already recorded: <strong>${report.human_verdict}</strong></p></div>`;
+  return `
+    <h2 style="margin-bottom:16px">HIL B — Verification Report</h2>
+    <div class="card">
+      <h3>Report</h3>
+      <pre>${JSON.stringify(report, null, 2)}</pre>
+    </div>
+    <div class="card">
+      <h3>Your Verdict</h3>
+      <div class="flex flex-wrap">
+        <button class="btn btn-success" onclick="submitVerdict('passed')">✓ Passed</button>
+        <button class="btn btn-danger" onclick="submitVerdict('degraded')">✗ Degraded — Rollback</button>
+        <button class="btn btn-danger" onclick="submitVerdict('failed')">✗ Failed</button>
+      </div>
+    </div>
+  `;
+}
+
+async function runVerify() {
+  await api("/verify/run", { method: "POST" });
+  renderPage("verify");
+}
+
+async function submitVerdict(v) {
+  await api("/verify/verdict", { method: "POST", body: JSON.stringify({ verdict: v }) });
+  renderPage("verify");
+}
+
+// ── Rollback ──
+async function renderRollback() {
+  const data = await api("/rollback-history");
+  return `
+    <h2 style="margin-bottom:16px">Rollback</h2>
+    <div class="card">
+      <h3>Execute Rollback</h3>
+      <p style="margin-bottom:8px">Restore Neo4j from the last backup before optimization.</p>
+      <button class="btn btn-danger" onclick="execRollback()">↺ Rollback Now</button>
+    </div>
+    <div class="card">
+      <h3>Rollback History</h3>
+      ${data.rollbacks?.length ? `<table>
+        <tr><th>Run ID</th><th>Reason</th><th>Date</th></tr>
+        ${data.rollbacks.map(r => `<tr><td>${r.run_id}</td><td>${r.rollback_reason || "—"}</td><td>${r.rollback_at ? new Date(r.rollback_at).toLocaleString() : "—"}</td></tr>`).join("")}
+      </table>` : "<p>No rollbacks yet.</p>"}
+    </div>
+  `;
+}
+
+async function execRollback() {
+  await api("/rollback", { method: "POST" });
+  renderPage("rollback");
+}
+
+function navigate(page) {
+  document.querySelectorAll(".sidebar .item").forEach(e => e.classList.remove("active"));
+  document.querySelector(`[data-page="${page}"]`)?.classList.add("active");
+  currentPage = page;
+  renderPage(page);
+}
+
+// ── Init ──
+connectSSE();
+renderPage("dashboard");
+</script>
+</body>
+</html>

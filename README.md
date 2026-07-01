@@ -45,7 +45,7 @@ Eval + Memory")]
         Prom[("Prometheus
 System Metrics")]
     end
-    OA --> Neo4j
+    OA -.->|read| Neo4j
     OA --> Prom
     IA --> Neo4j
     JA & OptA --> PG
@@ -89,37 +89,39 @@ flowchart TB
     subgraph Source["Data Sources"]
         direction LR
         RB[("RAGBench")]
+        FB[("Feedback / Ratings")]
         LF[("Langfuse")]
         PR[("Prometheus")]
         ER[("evalresult")]
     end
 
     subgraph Judge["Judge Agent"]
-        RM[(retrievalmetric)] -->|poll >= 200| EV[run_eval]
-        EV -->|5 metrics| ER
+        RM[(retrievalmetric)] -->|"poll >= 200"| EV[run_eval]
+        EV -->|"5 metrics"| ER
     end
 
     subgraph Optimizer["Optimizer Agent (HIL A + HIL B)"]
         direction TB
-        ANL[analyze] --> SUG[suggestion.json]
+        ANL[analyze] --> SUG[suggestion]
         SUG --> HILA{Approve?}
         HILA -->|no| XX[Discard]
-        VF["LLM Judge\nbad/good cases"] --> REP[verification report]
+        VF["LLM Judge bad/good cases"] --> REP[verification report]
         REP -.-> HILB{Pass?}
         HILB -->|yes| CL[Cleanup backup]
-        HILB -->|no| RBK["Restore dump\n+ revert params"]
-        RBK -.->|feedback| ANL
+        HILB -->|no| RBK["Restore dump + revert params"]
+        SUG -.->|"inject into"| ANL
+        RBK -.->|"inject into"| ANL
     end
 
     subgraph Index["Index Agent"]
-        IDX["chunk + embed\n+ entity extract"]
+        IDX["chunk + embed + entity extract"]
     end
 
     HILA -->|approve| IDX
     IDX --> VF
-    LF & PR & ER --> ANL
+    LF & PR & ER & FB --> ANL
     RB --> EV
-    CL --> ONLINE[Online Service]
+    CL --> NEXT["Next cycle"]
 ```
 
 ## Project Structure
@@ -154,7 +156,7 @@ NexusGraph/
 
 - **FastAPI** server with LangGraph agent
 - **Two-layer memory**: Short-term (session checkpoints) + Long-term (mem0 + pgvector cross-session)
-- **3-path retrieval + LLM reranker**: Vector (1024d cosine) + BM25 (fulltext) + Graph (entity expand, 1-2 hops) + LLM rerank (always on)
+- **3-path retrieval + LLM reranker**: Vector (1024d cosine) + BM25 (fulltext) + Graph (entity expand, 1-2 hops) + LLM rerank
 - **Langfuse**: Full trace per query
 
 ### Backend Agents
@@ -165,23 +167,20 @@ NexusGraph/
 | **Optimizer Agent** | app/core/optimizer\_agent/ | Metrics analysis + LLM optimization + HIL approval                               |
 | **Index Agent**     | app/core/index\_agent/     | KB construction (chunk, embed, entity extract)                                   |
 
-Data flywheel: Judge (triggered by conversation count) -> Optimizer (HIL) -> Index, automated via workflow.
+Data flywheel: Judge (triggered by conversation count) -> Optimizer (HIL A) -> Index -> Verification(HIL B) -> Cleanup/Rollback, all automated via workflow.
 
-### Local Mode (Index Agent Only)
+**Offline Admin UI**:
 
-ENABLE\_LOCAL=true replaces cloud API calls **only for the Index Agent** (knowledge base construction). Online Agent always uses cloud DashScope.
+A web management panel for Backend Agents (Judge / Optimizer / Index), running as a standalone FastAPI server (http://localhost:8001/admin).
 
-| Component                     | Cloud (default)             | Local (ENABLE\_LOCAL=true)                   |
-| ----------------------------- | --------------------------- | -------------------------------------------- |
-| Index Agent Embedding         | DashScope text-embedding-v3 | mxbai-embed-large-v1 (sentence-transformers) |
-| Index Agent Entity Extraction | DashScope qwen3.6-flash     | deepseek-r1:8b (Ollama)                      |
-
-```bash
-# .env.development
-ENABLE_LOCAL=true
-LOCAL_OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
-LOCAL_LLM_MODEL=deepseek-r1:8b
-```
+| Page                 | Route           | Function                                                                      |
+| -------------------- | --------------- | ----------------------------------------------------------------------------- |
+| **Dashboard**        | /admin          | Flywheel status display, manual trigger, real-time SSE event feed             |
+| **Sessions**         | /admin#sessions | Full lifecycle records of each flywheel iteration                             |
+| **Eval Results**     | /admin#eval     | RAGBench 5-metric evaluation history with per-sample detail                   |
+| **HIL A** (Optimize) | /admin#optimize | Review LLM optimization suggestions; approve / modify parameters / reject     |
+| **HIL B** (Verify)   | /admin#verify   | Review verification before/after report; pass (cleanup) or degrade (rollback) |
+| **Rollback**         | /admin#rollback | Rollback event history with restore path and reason                           |
 
 ## Quick Start
 
@@ -208,9 +207,6 @@ docker compose --profile online --env-file .env.production up -d
 
 # Data layer + monitoring for offline analysis
 docker compose --profile offline up -d
-
-# Monitoring only
-docker compose --profile base up -d
 ```
 
 ### 2. Start Application
@@ -218,14 +214,17 @@ docker compose --profile base up -d
 ```bash
 # Online API + Chat UI (port 8000)
 python run_server.py
+
+# Backend Agents + Admin UI (port 8001)
+python run_offline_server.py
 ```
 
 ### Index Knowledge Base
 
 Choose one of two approaches:
 
-**Option A — Download pre-built release (recommended)**
-Download from GitHub Releases — contains a fully built Neo4j graph database with TechQA demo data.
+**Option A - Download pre-built release (recommended)**
+Download from GitHub Releases:Neo4j data dump — contains a fully built Neo4j graph database with TechQA demo data.
 
 ```bash
 docker compose --profile offline up -d neo4j
@@ -241,19 +240,27 @@ docker restart graphrag-neo4j
 | Entity Nodes  | \~8K+  | Extracted from \~50 docs (deepseek-r1:8b local / qwen3.6-flash cloud) |
 | Relationships | \~15K+ | Entity relations from \~50 docs                                       |
 
-**Option B — Build from scratch**
+**Option B - Build from scratch**
 
 ```bash
-python scripts/run_index_agent.py --split train
+# Standalone index (debug/dev only)
+python scripts/run_index_agent.py --split train --max-docs 200
 ```
 
-> **Note**: With ENABLE\_LOCAL=true, entity extraction uses local deepseek-r1:8b (no API key needed). Building full index takes \~30 min (cloud) or \~2-3 hr (local).
+**Local Mode (Index Agent Only)**
 
-### Run Offline Pipeline
+ENABLE\_LOCAL=true replaces cloud API calls **only for the Index Agent**.
+
+| Component                     | Cloud (default)             | Local (ENABLE\_LOCAL=true)                   |
+| ----------------------------- | --------------------------- | -------------------------------------------- |
+| Index Agent Embedding         | DashScope text-embedding-v3 | mxbai-embed-large-v1 (sentence-transformers) |
+| Index Agent Entity Extraction | DashScope qwen3.6-flash     | deepseek-r1:8b (Ollama)                      |
 
 ```bash
-python -m offline_agent.cli --help
-# Subcommands: eval, analyze, optimize, index, flywheel
+# .env.development
+ENABLE_LOCAL=true
+LOCAL_OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
+LOCAL_LLM_MODEL=deepseek-r1:8b
 ```
 
 ## Production Deployment
@@ -331,4 +338,5 @@ bash scripts/restore-data.sh <backup.tar.gz>
 
 ## License
 
-Apache 2.0 — Copyright 2026 kanchengw
+Apache 2.0 License
+Copyright 2026 kanchengw
